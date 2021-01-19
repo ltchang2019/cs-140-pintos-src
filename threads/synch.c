@@ -69,8 +69,8 @@ bool
 cmp_sema_elem (const struct list_elem *a, const struct list_elem *b,
                void *aux UNUSED)
 {
-  int64_t a_pri = list_entry (a, struct sema_elem, elem)->sema_t->priority;
-  int64_t b_pri = list_entry (b, struct sema_elem, elem)->sema_t->priority;
+  int a_pri = list_entry (a, struct sema_elem, elem)->sema_t->curr_priority;
+  int b_pri = list_entry (b, struct sema_elem, elem)->sema_t->curr_priority;
   return a_pri > b_pri;
 }
 
