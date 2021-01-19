@@ -205,7 +205,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
-  lock->priority = 0;
+  lock->priority = -1;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -249,15 +249,14 @@ donate_priority (struct lock *lock, int priority)
   struct thread *holder = lock->holder;
   holder->curr_priority = priority;
 
-  if (!lock->priority)
+  if (lock->priority == -1) {
     holder->num_donations++;
+  }
   
   // Donated priority always highest so lock moved to front of held_locks.
   lock->priority = priority;
   list_remove (&lock->elem);
   list_push_front (&holder->held_locks, &lock->elem);
-
-  thread_sort_ready_list();
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -290,17 +289,19 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
+  
+  enum intr_level old_level = intr_disable();
 
   struct thread *t = thread_current ();
   list_remove (&lock->elem); // Remove lock from current thread's held_locks
 
-  if (lock->priority) // Thread had donation
+  if (t->num_donations > 0) // Thread had donation
     {
-      lock->priority = 0;
+      lock->priority = -1;
       t->num_donations--;
 
       if (t->num_donations == 0) 
-        t->curr_priority = thread_current ()->owned_priority;
+        t->curr_priority = t->owned_priority;
       else 
         {
           struct list_elem *next_lock_elem = list_front (&t->held_locks);
@@ -311,6 +312,8 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
