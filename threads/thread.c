@@ -70,6 +70,19 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static bool cmp_priority(const struct list_elem *a,
+                         const struct list_elem *b,
+                         void *aux UNUSED);
+
+/* Comparison function for ready_list list. Compares by priority. */
+static bool
+cmp_priority (const struct list_elem *a,
+              const struct list_elem *b,
+              void *aux UNUSED) {
+  int64_t a_priority = list_entry (a, struct thread, elem)->priority;
+  int64_t b_priority = list_entry (b, struct thread, elem)->priority;
+  return a_priority > b_priority;
+}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -237,7 +250,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -308,7 +321,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, cmp_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
