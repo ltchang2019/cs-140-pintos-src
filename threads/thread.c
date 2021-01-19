@@ -79,8 +79,8 @@ static bool
 cmp_priority (const struct list_elem *a,
               const struct list_elem *b,
               void *aux UNUSED) {
-  int64_t a_priority = list_entry (a, struct thread, elem)->priority;
-  int64_t b_priority = list_entry (b, struct thread, elem)->priority;
+  int a_priority = list_entry (a, struct thread, elem)->priority;
+  int b_priority = list_entry (b, struct thread, elem)->priority;
   return a_priority > b_priority;
 }
 
