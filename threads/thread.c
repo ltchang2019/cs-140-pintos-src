@@ -70,17 +70,23 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-static bool cmp_priority(const struct list_elem *a,
-                         const struct list_elem *b,
-                         void *aux UNUSED);
 
 /* Comparison function for ready_list list. Compares by priority. */
-static bool
+bool
 cmp_priority (const struct list_elem *a,
               const struct list_elem *b,
               void *aux UNUSED) {
   int64_t a_priority = list_entry (a, struct thread, elem)->priority;
   int64_t b_priority = list_entry (b, struct thread, elem)->priority;
+  return a_priority > b_priority;
+}
+
+bool
+cmp_sema (const struct list_elem *a,
+          const struct list_elem *b,
+          void *aux UNUSED) {
+  int64_t a_priority = list_entry (a, struct semaphore_elem, elem)->sema_thread->priority;
+  int64_t b_priority = list_entry (b, struct semaphore_elem, elem)->sema_thread->priority;
   return a_priority > b_priority;
 }
 
@@ -252,6 +258,11 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
   t->status = THREAD_READY;
+
+  struct thread *cur = thread_current ();
+  if (cur != idle_thread && t->priority > cur->priority)
+    thread_yield ();
+
   intr_set_level (old_level);
 }
 
@@ -349,6 +360,14 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  struct thread *cur = thread_current ();
+  if (!list_empty (&ready_list))
+    {
+      struct list_elem *ready_elem = list_front (&ready_list);
+      struct thread *ready_thread = list_entry (ready_elem, struct thread, elem);
+      if (cur != idle_thread && ready_thread->priority > cur->priority)
+        thread_yield ();
+    }
 }
 
 /* Returns the current thread's priority. */
