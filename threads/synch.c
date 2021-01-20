@@ -267,8 +267,7 @@ donate_priority (struct lock *lock, int priority)
   enum intr_level old_level = intr_disable ();
 
   struct thread *holder = lock->holder;
-  holder->curr_priority = priority;
-  thread_sort_ready_list ();
+  thread_set_donated_priority(holder, priority);
 
   /* A thread's num_donations corresponds to number of held locks
      with priority donations. */

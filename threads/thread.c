@@ -19,7 +19,7 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-#define NUM_READY_LISTS (PRI_MAX - PRI_MIN + 1)
+#define NUM_READY_QUEUES 64
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -59,7 +59,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
-static struct list ready_queues[64];
+static struct list ready_queues[NUM_READY_QUEUES];
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -74,7 +74,6 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 /* Comparison function for ready_list list. Compares by priority. */
-
 bool
 cmp_priority (const struct list_elem *a, const struct list_elem *b,
               void *aux UNUSED)
@@ -105,6 +104,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  for (int i = 0; i < NUM_READY_QUEUES; i++)
+    list_init (&ready_queues[i]);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -375,11 +376,14 @@ thread_set_priority (int new_priority)
     }
 }
 
-/* Sorts the ready queue so highest priority threads are at the front. */
-void
-thread_sort_ready_list (void)
+/* Resets `ready` thread's curr_priority and readds it to ready_list.
+   No immediate preemption occurs. */
+void 
+thread_set_donated_priority (struct thread *t, int priority)
 {
-  list_sort (&ready_list, cmp_priority, NULL);
+  t->curr_priority = priority;
+  list_remove (&t->elem);
+  list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
 }
 
 /* Returns the current thread's priority. */
