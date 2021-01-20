@@ -230,12 +230,21 @@ lock_acquire (struct lock *lock)
 
   enum intr_level old_level = intr_disable();
 
-  int acq_priority = thread_current ()->curr_priority;
   if (lock->holder != NULL)
   {
     thread_current ()->desired_lock = lock;
-    if (acq_priority > lock->holder->curr_priority)
-      donate_priority (lock, acq_priority); 
+
+    int acq_priority = thread_current ()->curr_priority;
+    if (acq_priority > lock->holder->curr_priority) 
+    {
+      /* Reassign lock to avoid compiler optimizing out while loop. */
+      struct lock *curr_lock = lock; 
+      while (curr_lock != NULL)
+      {
+        donate_priority (curr_lock, acq_priority); 
+        curr_lock = curr_lock->holder->desired_lock;
+      }
+    }
   }
   sema_down (&lock->semaphore); /* Blocks thread if priority was donated. */
 
@@ -253,7 +262,7 @@ lock_acquire (struct lock *lock)
 static void 
 donate_priority (struct lock *lock, int priority)
 {
-  enum intr_level old_level = intr_disable();
+  enum intr_level old_level = intr_disable ();
 
   struct thread *holder = lock->holder;
   holder->curr_priority = priority;
