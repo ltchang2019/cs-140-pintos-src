@@ -356,9 +356,15 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->curr_priority = new_priority;
-  thread_current ()->owned_priority = new_priority;
-  thread_current ()->num_donations = 0;
+  struct thread *t = thread_current ();
+  t->owned_priority = new_priority;
+  
+  if (new_priority > t->curr_priority)
+    {
+      t->curr_priority = new_priority;
+      // t->num_donations = 0;
+    }
+
   if (!list_empty (&ready_list))
     {
       struct list_elem *ready_elem = list_front (&ready_list);
@@ -497,9 +503,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->num_donations = 0;
   t->owned_priority = priority;
   t->curr_priority = priority;
+  t->num_donations = 0;
   list_init(&t->held_locks);
   t->magic = THREAD_MAGIC;
 
