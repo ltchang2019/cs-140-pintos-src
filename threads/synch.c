@@ -66,7 +66,7 @@ sema_elem_init (struct sema_elem *sema_elem)
 
 /* Comparison function for semaphores in a list owned by a condition
    variable. Compares by priority of the threads associated with each
-   semaphore. */
+   semaphore. Sorts in descending order. */
 bool
 cmp_sema_elem (const struct list_elem *a, const struct list_elem *b,
                void *aux UNUSED)
@@ -129,7 +129,8 @@ sema_try_down (struct semaphore *sema)
 }
 
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
-   and wakes up one thread of those waiting for SEMA, if any.
+   and wakes up the thread with highest priority waiting for
+   SEMA, if any.
 
    This function may be called from an interrupt handler. */
 void
@@ -142,8 +143,11 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   sema->value++;
   if (!list_empty (&sema->waiters)) 
+  {
+    list_sort (&sema->waiters, cmp_priority, NULL);
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
+  }
   intr_set_level (old_level);
 }
 
@@ -226,25 +230,24 @@ lock_acquire (struct lock *lock)
 
   enum intr_level old_level = intr_disable();
 
-  int acq_priority = thread_current ()->curr_priority; // WARN: reaching into thread struct
+  int acq_priority = thread_current ()->curr_priority;
+  if (lock->holder != NULL)
+  {
+    thread_current ()->desired_lock = lock;
+    if (acq_priority > lock->holder->curr_priority)
+      donate_priority (lock, acq_priority); 
+  }
+  sema_down (&lock->semaphore); /* Blocks thread if priority was donated. */
 
-  if (lock->holder && acq_priority > lock->holder->curr_priority)
-    {
-      thread_current ()->desired_lock = lock; // WARN: reaching into thread struct
-      donate_priority (lock, acq_priority);
-      printf("Holder num_donations (outside): %d\n", lock->holder->num_donations);
-    }
-
-  sema_down (&lock->semaphore); // After donation, blocks current thread until lock released
-
+  /* Lock is free to be acquired. */
   lock->holder = thread_current (); 
-  list_push_front (&thread_current ()->held_locks, &lock->elem);
   thread_current ()->desired_lock = NULL;
+  list_push_back (&thread_current ()->held_locks, &lock->elem);
 
   intr_set_level (old_level);
 }
 
-/* Sets priority of holder to donated priority. Sets lock's priority
+/* Sets priority of lock holder to donated priority. Sets lock's priority
    to donated priority. Updates (reorders) holder's held_locks list. Sorts
    the thread library's ready_list to reflect new priority of donee. */
 static void 
@@ -252,20 +255,20 @@ donate_priority (struct lock *lock, int priority)
 {
   enum intr_level old_level = intr_disable();
 
-  printf("DONATING PRIORITY\n");
   struct thread *holder = lock->holder;
   holder->curr_priority = priority;
+  thread_sort_ready_list ();
 
-  if (lock->priority == -1)
+  /* A thread's num_donations corresponds to number of held locks
+     with priority donations. */
+  if (lock->priority == -1)  
     holder->num_donations++;
-
-  printf("Holder num_donations: %d\n", holder->num_donations);
   
-  // Donated priority always highest so lock moved to front of held_locks.
+  /* Donated priority always highest so corresponding lock should 
+     be moved to front of held_locks list owned by thread. */
   lock->priority = priority;
   list_remove (&lock->elem);
   list_push_front (&holder->held_locks, &lock->elem);
-  thread_sort_ready_list();
 
   intr_set_level (old_level);
 }
@@ -298,31 +301,32 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
-  // printf("RELEASED");
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
   
   enum intr_level old_level = intr_disable();
 
   struct thread *t = thread_current ();
-  list_remove (&lock->elem); // Remove lock from current thread's held_locks
+  list_remove (&lock->elem);
 
-  if (t->num_donations > 0) // Thread had donation
+  /* Thread had donation for this lock, so change curr_priority
+     based on whether there are other donations or not. */
+  if (t->num_donations > 0 && lock->priority != -1)
     {
-      lock->priority = -1;
       t->num_donations--;
-
       if (t->num_donations == 0) 
         t->curr_priority = t->owned_priority;
       else 
         {
-          struct list_elem *next_lock_elem = list_front (&t->held_locks);
-          struct lock *next_lock = list_entry (next_lock_elem, struct lock, elem);
+          struct list_elem *lock_elem = list_front (&t->held_locks);
+          struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
           t->curr_priority = next_lock->priority;
         }
     }
 
+  /* Signal the waiting thread of highest priority that lock is available. */
   lock->holder = NULL;
+  lock->priority = -1;
   sema_up (&lock->semaphore);
 
   intr_set_level (old_level);

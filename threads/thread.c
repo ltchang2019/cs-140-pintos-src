@@ -252,7 +252,7 @@ thread_unblock (struct thread *t)
   list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
   t->status = THREAD_READY;
 
-  /* Running thread yields to ready thread of higher priority. */ 
+  /* Running thread yields to a ready thread of higher priority. */ 
   struct thread *cur = thread_current ();
   if (cur != idle_thread && t->curr_priority > cur->curr_priority)
     thread_yield ();
@@ -358,22 +358,22 @@ thread_set_priority (int new_priority)
 {
   struct thread *t = thread_current ();
   t->owned_priority = new_priority;
-  
-  if (new_priority > t->curr_priority)
-    {
-      t->curr_priority = new_priority;
-      // t->num_donations = 0;
-    }
-
+  if (t->num_donations == 0 || new_priority > t->curr_priority) // If thread has received no donations, curr_priority
+    t->curr_priority = new_priority;                            // should also be changed to new_priority. Similarly,
+                                                                // if thread is setting its own priority to a new high
+                                                                // value, curr_priority should be changed to this new
+                                                                // high value. Any donated values in locks will be
+                                                                // taken vare of by calls to lock_release().
   if (!list_empty (&ready_list))
     {
       struct list_elem *ready_elem = list_front (&ready_list);
       struct thread *ready_thread = list_entry (ready_elem, struct thread, elem);
-      if (ready_thread->curr_priority > new_priority)
+      if (ready_thread->curr_priority > t->curr_priority)
         thread_yield ();
     }
 }
 
+/* Sorts the ready queue so highest priority threads are at the front. */
 void
 thread_sort_ready_list (void)
 {
