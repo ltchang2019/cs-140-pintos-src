@@ -19,6 +19,7 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
+#define NUM_READY_LISTS (PRI_MAX - PRI_MIN + 1)
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -58,6 +59,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+static struct list ready_queues[64];
 
 static void kernel_thread (thread_func *, void *aux);
 

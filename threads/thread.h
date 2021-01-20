@@ -97,6 +97,10 @@ struct thread
     struct list held_locks;             /* List of locks held by thread. */
     struct lock *desired_lock;          /* Lock thread is waiting (blocked) on. */
 
+    /* For advanced scheduler. */
+    int nice;
+    int recent_cpu;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
