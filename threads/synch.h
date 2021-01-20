@@ -15,25 +15,28 @@ struct semaphore
 /* One semaphore in a list. */
 struct sema_elem 
   {
-    struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
     struct thread *sema_t;              /* Waiting thread. */
+    struct list_elem elem;              /* List element. */
   };
 
 void sema_init (struct semaphore *, unsigned value);
 void sema_elem_init (struct sema_elem *);
-bool cmp_sema_elem (const struct list_elem *a, const struct list_elem *b,
-                    void *aux UNUSED);
 void sema_down (struct semaphore *);
 bool sema_try_down (struct semaphore *);
 void sema_up (struct semaphore *);
 void sema_self_test (void);
+bool cmp_sema_elem (const struct list_elem *a, const struct list_elem *b,
+                    void *aux UNUSED);
 
 /* Lock. */
 struct lock 
   {
     struct thread *holder;      /* Thread holding lock (for debugging). */
+    int priority;               /* Highest donated priority for this lock.
+                                   Has value -1 if there are no donations. */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
+    struct list_elem elem;      /* List element. */
   };
 
 void lock_init (struct lock *);

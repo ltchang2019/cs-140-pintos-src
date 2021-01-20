@@ -72,13 +72,14 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 /* Comparison function for ready_list list. Compares by priority. */
+
 bool
 cmp_priority (const struct list_elem *a, const struct list_elem *b,
               void *aux UNUSED)
 {
-  int64_t a_priority = list_entry (a, struct thread, elem)->priority;
-  int64_t b_priority = list_entry (b, struct thread, elem)->priority;
-  return a_priority > b_priority;
+  int a_pri = list_entry (a, struct thread, elem)->curr_priority;
+  int b_pri = list_entry (b, struct thread, elem)->curr_priority;
+  return a_pri > b_pri;
 }
 
 /* Initializes the threading system by transforming the code
@@ -251,9 +252,9 @@ thread_unblock (struct thread *t)
   list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
   t->status = THREAD_READY;
 
-  /* Running thread yields to ready thread of higher priority. */ 
+  /* Running thread yields to a ready thread of higher priority. */ 
   struct thread *cur = thread_current ();
-  if (cur != idle_thread && t->priority > cur->priority)
+  if (cur != idle_thread && t->curr_priority > cur->curr_priority)
     thread_yield ();
 
   intr_set_level (old_level);
@@ -355,21 +356,35 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *t = thread_current ();
+  t->owned_priority = new_priority;
+  if (t->num_donations == 0 || new_priority > t->curr_priority) // If thread has received no donations, curr_priority
+    t->curr_priority = new_priority;                            // should also be changed to new_priority. Similarly,
+                                                                // if thread is setting its own priority to a new high
+                                                                // value, curr_priority should be changed to this new
+                                                                // high value. Any donated values in locks will be
+                                                                // taken vare of by calls to lock_release().
   if (!list_empty (&ready_list))
     {
       struct list_elem *ready_elem = list_front (&ready_list);
       struct thread *ready_thread = list_entry (ready_elem, struct thread, elem);
-      if (ready_thread->priority > new_priority)
+      if (ready_thread->curr_priority > t->curr_priority)
         thread_yield ();
     }
+}
+
+/* Sorts the ready queue so highest priority threads are at the front. */
+void
+thread_sort_ready_list (void)
+{
+  list_sort (&ready_list, cmp_priority, NULL);
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  return thread_current ()->curr_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -488,7 +503,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
+  t->owned_priority = priority;
+  t->curr_priority = priority;
+  t->num_donations = 0;
+  t->desired_lock = NULL;
+  list_init(&t->held_locks);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
