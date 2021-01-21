@@ -6,9 +6,7 @@
 void
 ready_queue_init (struct ready_queue *q)
 {
-    ASSERT (intr_get_level () == INTR_OFF);
-
-    for(int i = 0; i < 64; i++)
+    for(int i = 0; i < NUM_QUEUES; i++)
         list_init (&q->queues[i]);
 }
 
@@ -16,7 +14,7 @@ ready_queue_init (struct ready_queue *q)
 bool
 ready_queue_empty (struct ready_queue *q)
 {
-    return q->num_elems == 0;
+    return ready_queue_size (q) == 0;
 }
 
 /* Returns number of elements in of ready queue. Throws if num_elems < 0. */
@@ -32,8 +30,6 @@ ready_queue_size (struct ready_queue *q)
 void 
 ready_queue_insert (struct ready_queue *q, struct thread *t)
 {
-    ASSERT (intr_get_level () == INTR_OFF);
-
     list_push_back (&q->queues[t->curr_priority], &t->elem);
     q->num_elems++;
 }
@@ -42,7 +38,6 @@ ready_queue_insert (struct ready_queue *q, struct thread *t)
 void
 ready_queue_remove (struct ready_queue *q, struct thread *t)
 {
-    ASSERT (intr_get_level () == INTR_OFF);
     ASSERT (ready_queue_size (q) > 0);
 
     list_remove (&t->elem);
@@ -53,7 +48,6 @@ ready_queue_remove (struct ready_queue *q, struct thread *t)
 struct thread *
 ready_queue_front (struct ready_queue *q)
 {
-    ASSERT (intr_get_level () == INTR_OFF);
     ASSERT (!ready_queue_empty (q));
 
     for (int i = NUM_QUEUES - 1; i >= 0; i--)

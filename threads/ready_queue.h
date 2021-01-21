@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "threads/thread.h"
 
-#define NUM_QUEUES 64
+#define NUM_QUEUES (PRI_MAX - PRI_MIN + 1)
 
 struct ready_queue 
 {
