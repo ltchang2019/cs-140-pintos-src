@@ -196,7 +196,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  check_sleeping_threads();
+  check_sleeping_threads ();
   thread_tick ();
 }
 
@@ -208,17 +208,21 @@ check_sleeping_threads(void)
   struct list_elem *front_elem;
   struct sleeping_thread *front_sleeping_thread;
 
-  while (!list_empty (&sleeping_threads_list)) {
-    front_elem = list_front (&sleeping_threads_list);
-    front_sleeping_thread = list_entry (front_elem, struct sleeping_thread, elem);
+  while (!list_empty (&sleeping_threads_list)) 
+    {
+      front_elem = list_front (&sleeping_threads_list);
+      front_sleeping_thread = list_entry (front_elem, struct sleeping_thread, elem);
     
-    if(front_sleeping_thread->wake_time <= ticks) {
-      list_pop_front (&sleeping_threads_list);
-      thread_unblock (front_sleeping_thread->thread);
-    } else {
-      break;
+    if(front_sleeping_thread->wake_time <= ticks) 
+      {
+        list_pop_front (&sleeping_threads_list);
+        thread_unblock (front_sleeping_thread->thread);
+      } 
+    else 
+      {
+        break;
+      }
     }
-  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

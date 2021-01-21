@@ -64,3 +64,14 @@ ready_queue_front (struct ready_queue *q)
 
     NOT_REACHED ();
 }
+
+struct thread *
+ready_queue_pop_front (struct ready_queue *q)
+{
+    ASSERT (intr_get_level () == INTR_OFF);
+    ASSERT (!ready_queue_empty (q));
+
+    struct thread *t = ready_queue_front (q);
+    ready_queue_remove (q, t);
+    return t;
+}

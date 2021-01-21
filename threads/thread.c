@@ -610,8 +610,7 @@ next_thread_to_run (void)
     return idle_thread;
   else
     {
-      struct thread *t = ready_queue_front (&ready_queue);
-      ready_queue_remove (&ready_queue, t);
+      struct thread *t = ready_queue_pop_front (&ready_queue);
       return t;
     }
 }

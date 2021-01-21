@@ -21,6 +21,8 @@ int ready_queue_size (struct ready_queue *);
 
 void ready_queue_insert (struct ready_queue *, struct thread *);
 void ready_queue_remove (struct ready_queue *, struct thread *);
+
 struct thread *ready_queue_front (struct ready_queue *);
+struct thread *ready_queue_pop_front (struct ready_queue *);
 
 #endif /* threads/ready_queue.h */
