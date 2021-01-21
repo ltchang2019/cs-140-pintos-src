@@ -18,7 +18,7 @@ ready_queue_empty (struct ready_queue *q)
 }
 
 /* Returns number of elements in of ready queue. Throws if num_elems < 0. */
-bool
+int
 ready_queue_size (struct ready_queue *q)
 {
     ASSERT (q->num_elems >= 0);
@@ -30,6 +30,8 @@ ready_queue_size (struct ready_queue *q)
 void 
 ready_queue_insert (struct ready_queue *q, struct thread *t)
 {
+    ASSERT (intr_get_level () == INTR_OFF);
+    
     list_push_back (&q->queues[t->curr_priority], &t->elem);
     q->num_elems++;
 }
@@ -38,6 +40,7 @@ ready_queue_insert (struct ready_queue *q, struct thread *t)
 void
 ready_queue_remove (struct ready_queue *q, struct thread *t)
 {
+    ASSERT (intr_get_level () == INTR_OFF);
     ASSERT (ready_queue_size (q) > 0);
 
     list_remove (&t->elem);
