@@ -73,11 +73,11 @@ static inline fixed32_t sub_fixed_int (fixed32_t x, int n) {
 static inline void detect_mul_div_overflow(int a, int b, int result) {
   if ((a > 0 && b > 0) || (a < 0 && b < 0))
   {
-    ASSERT (result > 0);
+    ASSERT (result >= 0);
   }
   if ((a > 0 && b < 0) || (a < 0 && b > 0)) 
   {
-    ASSERT (result < 0);
+    ASSERT (result <= 0);
   }
 }
 static inline fixed32_t mul_fixed_fixed (fixed32_t x, fixed32_t y) {

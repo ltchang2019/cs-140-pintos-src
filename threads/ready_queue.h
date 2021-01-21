@@ -17,7 +17,7 @@ struct ready_queue
 void ready_queue_init (struct ready_queue *);
 
 bool ready_queue_empty (struct ready_queue *);
-bool ready_queue_size (struct ready_queue *);
+int ready_queue_size (struct ready_queue *);
 
 void ready_queue_insert (struct ready_queue *, struct thread *);
 void ready_queue_remove (struct ready_queue *, struct thread *);

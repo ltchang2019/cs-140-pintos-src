@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "threads/fixed-point.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -60,6 +61,15 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+/* Constants related to calculations required by the multi-level feedback
+   queue scheduler. */
+#define LOAD_AVG 60
+
+/* Statistics used by the multi-level feedback queue scheduler to assign
+   priorities to threads. */
+static fixed32_t load_avg;      /* Estimates average number of threads
+                                   ready to run over past minute. */
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -99,6 +109,10 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
+
+  /* Initializations when using multi-level feedback queue scheduler. */
+  if (thread_mlfqs)
+    load_avg = 0;
 
   lock_init (&tid_lock);
   ready_queue_init (&ready_queue);
@@ -325,7 +339,7 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
+  if (cur != idle_thread)
     ready_queue_insert (&ready_queue, cur);
   cur->status = THREAD_READY;
   schedule ();
@@ -408,8 +422,22 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fixed_to_two_decimal_format(load_avg);
+}
+
+/* Recalculates the new system load average according to the formula:
+   load_avg = (59/60)*load_avg + (1/60)*ready_threads */
+static const fixed32_t frac_59_60 = (LOAD_AVG - 1) * FIXED32_CONST / LOAD_AVG;
+static const fixed32_t frac_1_60 = FIXED32_CONST / LOAD_AVG;
+void
+calc_load_avg (void) 
+{
+  int num_ready_threads = ready_queue_size (&ready_queue);
+  if (thread_current () != idle_thread)
+    num_ready_threads++;
+  fixed32_t term_1 = mul_fixed_fixed(frac_59_60, load_avg);
+  fixed32_t term_2 = mul_fixed_int(frac_1_60, num_ready_threads);
+  load_avg = term_1 + term_2;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */

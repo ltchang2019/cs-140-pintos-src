@@ -80,6 +80,7 @@ timer_ticks (void)
 {
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
+
   intr_set_level (old_level);
   return t;
 }
@@ -196,6 +197,13 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+
+  if (thread_mlfqs)
+  {
+    if (ticks % TIMER_FREQ == 0)
+      calc_load_avg ();
+  }
+
   check_sleeping_threads();
   thread_tick ();
 }
@@ -212,7 +220,7 @@ check_sleeping_threads(void)
     front_elem = list_front (&sleeping_threads_list);
     front_sleeping_thread = list_entry (front_elem, struct sleeping_thread, elem);
     
-    if(front_sleeping_thread->wake_time <= ticks) {
+    if (front_sleeping_thread->wake_time <= ticks) {
       list_pop_front (&sleeping_threads_list);
       thread_unblock (front_sleeping_thread->thread);
     } else {

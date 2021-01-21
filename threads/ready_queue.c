@@ -18,7 +18,7 @@ ready_queue_empty (struct ready_queue *q)
 }
 
 /* Returns number of elements in of ready queue. Throws if num_elems < 0. */
-bool
+int
 ready_queue_size (struct ready_queue *q)
 {
     ASSERT (q->num_elems >= 0);
