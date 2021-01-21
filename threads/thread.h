@@ -97,6 +97,10 @@ struct thread
     struct list held_locks;             /* List of locks held by thread. */
     struct lock *desired_lock;          /* Lock thread is waiting (blocked) on. */
 
+    /* For advanced scheduler. */
+    int nice;
+    int recent_cpu;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -140,6 +144,7 @@ void thread_foreach (thread_action_func *, void *);
 void thread_sort_ready_list (void);
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_set_donated_priority (struct thread *, int);
 bool cmp_priority (const struct list_elem *a, const struct list_elem *b,
                    void *aux UNUSED);
 

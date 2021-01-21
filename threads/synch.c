@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+#define NO_DONATIONS_PRI -1
+
 static void donate_priority (struct lock *lock, int priority);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -209,7 +211,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
-  lock->priority = -1;
+  lock->priority = NO_DONATIONS_PRI;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -265,12 +267,11 @@ donate_priority (struct lock *lock, int priority)
   enum intr_level old_level = intr_disable ();
 
   struct thread *holder = lock->holder;
-  holder->curr_priority = priority;
-  thread_sort_ready_list ();
+  thread_set_donated_priority (holder, priority);
 
   /* A thread's num_donations corresponds to number of held locks
      with priority donations. */
-  if (lock->priority == -1)  
+  if (lock->priority == NO_DONATIONS_PRI)  
     holder->num_donations++;
   
   /* Donated priority always highest so corresponding lock should 
@@ -320,7 +321,7 @@ lock_release (struct lock *lock)
 
   /* Thread had donation for this lock, so change curr_priority
      based on whether there are other donations or not. */
-  if (t->num_donations > 0 && lock->priority != -1)
+  if (t->num_donations > 0 && lock->priority != NO_DONATIONS_PRI)
     {
       t->num_donations--;
       if (t->num_donations == 0) 
@@ -335,7 +336,7 @@ lock_release (struct lock *lock)
 
   /* Signal the waiting thread of highest priority that lock is available. */
   lock->holder = NULL;
-  lock->priority = -1;
+  lock->priority = NO_DONATIONS_PRI;
   sema_up (&lock->semaphore);
 
   intr_set_level (old_level);

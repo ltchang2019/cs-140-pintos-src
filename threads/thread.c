@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/ready_queue.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
@@ -22,7 +23,7 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+static struct ready_queue ready_queue;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -72,7 +73,6 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 /* Comparison function for ready_list list. Compares by priority. */
-
 bool
 cmp_priority (const struct list_elem *a, const struct list_elem *b,
               void *aux UNUSED)
@@ -101,7 +101,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
-  list_init (&ready_list);
+  ready_queue_init (&ready_queue);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -249,7 +249,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
+  ready_queue_insert (&ready_queue, t);
   t->status = THREAD_READY;
 
   /* Running thread yields to a ready thread of higher priority. */ 
@@ -326,7 +326,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, cmp_priority, NULL);
+    ready_queue_insert (&ready_queue, cur);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -358,26 +358,28 @@ thread_set_priority (int new_priority)
 {
   struct thread *t = thread_current ();
   t->owned_priority = new_priority;
-  if (t->num_donations == 0 || new_priority > t->curr_priority) // If thread has received no donations, curr_priority
-    t->curr_priority = new_priority;                            // should also be changed to new_priority. Similarly,
-                                                                // if thread is setting its own priority to a new high
-                                                                // value, curr_priority should be changed to this new
-                                                                // high value. Any donated values in locks will be
-                                                                // taken vare of by calls to lock_release().
-  if (!list_empty (&ready_list))
+  if (t->num_donations == 0 || new_priority > t->curr_priority)
+    t->curr_priority = new_priority;                            
+
+  if (!ready_queue_empty (&ready_queue))
     {
-      struct list_elem *ready_elem = list_front (&ready_list);
-      struct thread *ready_thread = list_entry (ready_elem, struct thread, elem);
+      struct thread *ready_thread = ready_queue_front (&ready_queue);
       if (ready_thread->curr_priority > t->curr_priority)
         thread_yield ();
     }
 }
 
-/* Sorts the ready queue so highest priority threads are at the front. */
-void
-thread_sort_ready_list (void)
+/* Resets `ready` thread's curr_priority and readds it to ready_list.
+   No immediate preemption occurs. */
+void 
+thread_set_donated_priority (struct thread *t, int priority)
 {
-  list_sort (&ready_list, cmp_priority, NULL);
+  t->curr_priority = priority;
+  if (t->curr_priority == THREAD_READY)
+  {
+    ready_queue_remove (&ready_queue, t);
+    ready_queue_insert (&ready_queue, t);
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -536,10 +538,14 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
+  if (ready_queue_empty (&ready_queue))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    {
+      struct thread *t = ready_queue_front (&ready_queue);
+      ready_queue_remove (&ready_queue, t);
+      return t;
+    }
 }
 
 /* Completes a thread switch by activating the new thread's page
