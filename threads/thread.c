@@ -375,8 +375,11 @@ void
 thread_set_donated_priority (struct thread *t, int priority)
 {
   t->curr_priority = priority;
-  ready_queue_remove (&ready_queue, t);
-  ready_queue_insert (&ready_queue, t);
+  if (t->curr_priority == THREAD_READY)
+  {
+    ready_queue_remove (&ready_queue, t);
+    ready_queue_insert (&ready_queue, t);
+  }
 }
 
 /* Returns the current thread's priority. */
