@@ -46,10 +46,6 @@ struct kernel_thread_frame
     void *aux;                  /* Auxiliary data for function. */
   };
 
-
-/* Number of timer ticks since OS booted. */
-static int64_t ticks;
-
 /* Statistics. */
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
@@ -85,13 +81,9 @@ static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
+static void thread_check_preempt (void);
 static tid_t allocate_tid (void);
 
-static void thread_check_preempt (void);
-
-static void mlfqs_tick (void);
-static void mlfqs_calc_load_avg (void);
-static void mlfqs_calc_thread_rcpu_and_priority (struct thread *t, void *aux UNUSED);
 
 /* Comparison function for ready_list list. Compares by priority. */
 bool
@@ -162,7 +154,6 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
-  ticks++;
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -364,8 +355,8 @@ thread_yield (void)
 
 /* Preempts the running thread if a thread of higher priority is
    ready to run. */
-void
-thread_preempt (void)
+static void
+thread_check_preempt (void)
 {
   if (!ready_queue_empty (&ready_queue))
     {
@@ -417,7 +408,7 @@ thread_set_priority (int new_priority)
   if (t->num_donations == 0 || new_priority > t->curr_priority)
     t->curr_priority = new_priority;                            
 
-  thread_preempt ();
+  thread_check_preempt ();
 }
 
 /* Resets `ready` thread's curr_priority and readds it to ready_list.
@@ -442,44 +433,26 @@ thread_get_priority (void)
 
 /* Updates load_avg, recent_cpu, and thread priorities on necessary 
    timer ticks. Called by thread_tick. */
-static void 
-mlfqs_tick (void) 
+void 
+mlfqs_tick (int64_t ticks) 
 {
-  thread_current ()->recent_cpu++;
+  /* Increment recent_cpu of running thread by 1 */
+  increment_recent_cpu ();
 
-  if (ticks % TIMER_FREQ == 0) /* Recalculate all priorities. */
-    {
-      mlfqs_calc_load_avg ();
-      thread_foreach (mlfqs_calc_thread_rcpu_and_priority, NULL);
-      thread_check_preempt ();
-    }
-  else if (ticks % 4 == 0) /* Recalculate running priority. */
-    {
-      mlfqs_calc_priority (thread_current ());
-      thread_check_preempt ();
-    }
+  /* Update system load average and recent_cpu of each thread
+      once per second. */
+  if (ticks % TIMER_FREQ == 0)
+  {
+    calc_load_avg ();
+    fixed32_t coeff = load_avg_coeff ();
+    thread_foreach(calc_recent_cpu, &coeff);
+  }
+
+  /* Update priority of each thread once every fourth tick. */
+  if (ticks % TIME_SLICE == 0)
+    thread_foreach(calc_priority, NULL);
 }
 
-/* Recalculates recent_cpu and priority of given thread. Rebins thread
-   in ready_queue if status was THREAD_READY. Reinserts thread into all
-   waited-on sync primitives if THREAD_BLOCKED. */
-static void
-mlfqs_calc_thread_rcpu_and_priority (struct thread *t, void *aux UNUSED)
-{
-  // recalculate/set recent_cpu
-  // recalculate/set curr_priority
-  // If thread->status = THREAD_READY:
-  //  - Call ready_queue_rebin(thread), which removes/reinserts ready thread into correct bin
-  // If thread->status == THREAD_BLOCKED:
-  //  - Remove/reinsert blocked thread into waiter lists of all sync primitives to maintain ordering
-}
-
-/* Recalculates system load_avg. */
-static void
-mlfqs_calc_load_avg (void)
-{
-
-}
 
 /* Sets the current thread's nice value to NICE. */
 void
@@ -490,7 +463,7 @@ thread_set_nice (int nice)
   struct thread *cur = thread_current ();
   cur->nice = nice;
   calc_priority (cur, NULL);
-  thread_preempt ();
+  thread_check_preempt ();
 }
 
 /* Returns the current thread's nice value. */

@@ -123,6 +123,7 @@ void thread_init (void);
 void thread_start (void);
 
 void thread_tick (void);
+void mlfqs_tick(int64_t);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
@@ -137,7 +138,6 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
-void thread_preempt (void);
 void thread_wake (struct thread *t);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
