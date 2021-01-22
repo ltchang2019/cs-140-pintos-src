@@ -80,6 +80,7 @@ timer_ticks (void)
 {
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
+
   intr_set_level (old_level);
   return t;
 }
@@ -196,8 +197,27 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  check_sleeping_threads();
+  check_sleeping_threads ();
   thread_tick ();
+
+  if (thread_mlfqs)
+  {
+    /* Increment recent_cpu of running thread by 1 */
+    increment_recent_cpu ();
+
+    /* Update system load average and recent_cpu of each thread
+       once per second. */
+    if (ticks % TIMER_FREQ == 0)
+    {
+      calc_load_avg ();
+      fixed32_t coeff = load_avg_coeff ();
+      thread_foreach(calc_recent_cpu, &coeff);
+    }
+
+    /* Update priority of each thread once every fourth tick. */
+    if (ticks % 4 == 0)
+      thread_foreach(calc_priority, NULL);
+  }
 }
 
 /* Checks sleeping_threads_list and wakes up any threads that have
@@ -206,18 +226,20 @@ static void
 check_sleeping_threads(void)
 {
   struct list_elem *front_elem;
-  struct sleeping_thread *front_sleeping_thread;
+  struct sleeping_thread *front_sleeping;
 
-  while (!list_empty (&sleeping_threads_list)) {
+  while (!list_empty (&sleeping_threads_list))
+  {
     front_elem = list_front (&sleeping_threads_list);
-    front_sleeping_thread = list_entry (front_elem, struct sleeping_thread, elem);
+    front_sleeping = list_entry (front_elem, struct sleeping_thread, elem);
     
-    if(front_sleeping_thread->wake_time <= ticks) {
+    if (front_sleeping->wake_time <= ticks)
+    {
       list_pop_front (&sleeping_threads_list);
-      thread_unblock (front_sleeping_thread->thread);
-    } else {
+      thread_wake (front_sleeping->thread);
+    } 
+    else
       break;
-    }
   }
 }
 

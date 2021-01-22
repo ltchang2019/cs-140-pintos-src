@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
 #include "threads/synch.h"
 
 /* States in a thread's life cycle. */
@@ -99,7 +100,7 @@ struct thread
 
     /* For advanced scheduler. */
     int nice;
-    int recent_cpu;
+    fixed32_t recent_cpu;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -122,6 +123,7 @@ void thread_init (void);
 void thread_start (void);
 
 void thread_tick (void);
+void mlfqs_tick(int64_t);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
@@ -136,6 +138,7 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+void thread_wake (struct thread *t);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
@@ -152,5 +155,10 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+void calc_load_avg (void);
+void increment_recent_cpu (void);
+fixed32_t load_avg_coeff (void);
+void calc_recent_cpu (struct thread *t, void *aux);
+void calc_priority (struct thread *t, void *aux UNUSED);
 
 #endif /* threads/thread.h */
