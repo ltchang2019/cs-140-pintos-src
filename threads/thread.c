@@ -21,8 +21,8 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
-/* List of processes in THREAD_READY state, that is, processes
-   that are ready to run but not actually running. */
+/* A container for processes in THREAD_READY state, that is,
+   processes that are ready to run but not actually running. */
 static struct ready_queue ready_queue;
 
 /* List of all processes.  Processes are added to this list
@@ -61,14 +61,14 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
-/* System load average, used by the multi-level feedback queue scheduler
-   to assign priorities to threads. Calculated as an estimate of the
-   average number of threads ready to run over the past minute. */
+/* System load average, used by the advanced scheduler in calculations to
+   assign priorities to threads. Calculated as an estimate of the average
+   number of threads ready to run over the past minute. */
 static fixed32_t load_avg;
 
 /* Constants used by the multi-level feedback queue scheduler. */
-#define NICE_MAX 20
-#define NICE_MIN -20
+#define NICE_MAX 20  /* Max nice value of a thread (generous with CPU time). */
+#define NICE_MIN -20 /* Min nice value of a thread (a Grinch with CPU time). */
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -85,7 +85,8 @@ static void thread_check_preempt (void);
 static tid_t allocate_tid (void);
 
 
-/* Comparison function for ready_list list. Compares by priority. */
+/* Comparison function for ready queue of threads ready to run.
+   Compares by priority and sorts in descending order. */
 bool
 cmp_priority (const struct list_elem *a, const struct list_elem *b,
               void *aux UNUSED)
@@ -179,7 +180,9 @@ thread_print_stats (void)
 }
 
 /* Creates a new kernel thread named NAME with the given initial
-   PRIORITY, which executes FUNCTION passing AUX as the argument,
+   PRIORITY, unless the multi-level feedback queue scheduler is
+   used, in which case priority is calculated according to a
+   specific formula. Executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
    for the new thread, or TID_ERROR if creation fails.
 
@@ -188,11 +191,7 @@ thread_print_stats (void)
    before thread_create() returns.  Contrariwise, the original
    thread may run for any amount of time before the new thread is
    scheduled.  Use a semaphore or some other form of
-   synchronization if you need to ensure ordering.
-
-   The code provided sets the new thread's `priority' member to
-   PRIORITY, but no actual priority scheduling is implemented.
-   Priority scheduling is the goal of Problem 1-3. */
+   synchronization if you need to ensure ordering. */
 tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
@@ -359,11 +358,11 @@ static void
 thread_check_preempt (void)
 {
   if (!ready_queue_empty (&ready_queue))
-    {
-      struct thread *ready_thread = ready_queue_front (&ready_queue);
-      if (ready_thread->curr_priority > thread_current ()->curr_priority)
-        thread_yield ();
-    }
+  {
+    struct thread *ready_thread = ready_queue_front (&ready_queue);
+    if (ready_thread->curr_priority > thread_current ()->curr_priority)
+      thread_yield ();
+  }
 }
 
 /* Puts a sleeping thread that was just woken up into the ready queue. */
@@ -411,8 +410,10 @@ thread_set_priority (int new_priority)
   thread_check_preempt ();
 }
 
-/* Resets `ready` thread's curr_priority and readds it to ready_list.
-   No immediate preemption occurs. */
+/* Resets `ready` thread's curr_priority and readds it to the ready queue.
+   No immediate preemption occurs. 
+   
+   Function call ignored if multi-level feedback queue scheduler is used. */
 void 
 thread_set_donated_priority (struct thread *t, int priority)
 {
@@ -432,7 +433,7 @@ thread_get_priority (void)
 }
 
 /* Updates load_avg, recent_cpu, and thread priorities on necessary 
-   timer ticks. Called by thread_tick. */
+   timer ticks. Called by thread_tick(). */
 void 
 mlfqs_tick (int64_t ticks) 
 {
@@ -440,7 +441,7 @@ mlfqs_tick (int64_t ticks)
   increment_recent_cpu ();
 
   /* Update system load average and recent_cpu of each thread
-      once per second. */
+     once per second. */
   if (ticks % TIMER_FREQ == 0)
   {
     calc_load_avg ();
@@ -454,7 +455,8 @@ mlfqs_tick (int64_t ticks)
 }
 
 
-/* Sets the current thread's nice value to NICE. */
+/* Sets the current thread's nice value to NICE. Recalculates
+   priority of thread and preempt if necessary. */
 void
 thread_set_nice (int nice) 
 {
@@ -530,7 +532,10 @@ calc_recent_cpu (struct thread *t, void *aux)
 }
 
 /* Recalculates priority of a thread T according to the formula:
-   priority = PRI_MAX - (recent_cpu / 4) - (nice * 2) */
+   priority = PRI_MAX - (recent_cpu / 4) - (nice * 2)
+   
+   New priority is always adjusted to lie in the valid range
+   PRI_MIN to PRI_MAX. */
 static const fixed32_t pri_max_fixed = PRI_MAX * FIXED32_CONST;
 void
 calc_priority (struct thread *t, void *aux UNUSED)
@@ -634,23 +639,26 @@ init_thread (struct thread *t, const char *name, int priority,
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
 
-  t->nice = nice;
-  t->recent_cpu = recent_cpu;
+  /* If round-robin scheduler used, nice and recent_cpu are
+     ignored. If multi-level feedback queue scheduler is used,
+     priority is ignored and rather calculated from nice and
+     recent_cpu, which are inherited from the parent thread,
+     and num_donations is ignored since it is only relevant
+     for priority donations. */
   if (!thread_mlfqs)
   {
     t->owned_priority = priority;
     t->curr_priority = priority;
+    t->num_donations = 0;
   }
   else
+  {
+    t->nice = nice;
+    t->recent_cpu = recent_cpu;
     calc_priority(t, NULL);
-
-  t->num_donations = 0;
+  }
   t->desired_lock = NULL;
   list_init (&t->held_locks);
-
-  t->nice = 0;
-  t->recent_cpu = 0; //TODO
-
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

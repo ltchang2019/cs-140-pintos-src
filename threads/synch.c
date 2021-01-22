@@ -32,6 +32,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+/* Default value in a lock without any donations. */
 #define NO_DONATIONS_PRI -1
 
 static void donate_priority (struct lock *lock, int priority);
@@ -217,7 +218,12 @@ lock_init (struct lock *lock)
 
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
-   thread.
+   thread. With the round-robin scheduler enabled, if the thread
+   desiring LOCK has a higher priority than the thread holding
+   the lock, the higher priority is donated to the lock holder.
+   Nested donation is implemented, in which donations are passed
+   on to subsequent threads so long as those threads desire some
+   other lock.
 
    This function may sleep, so it must not be called within an
    interrupt handler.  This function may be called with
@@ -236,8 +242,7 @@ lock_acquire (struct lock *lock)
   {
     thread_current ()->desired_lock = lock;
     
-    /* Priority donation disabled for multi-level feedback
-       queue scheduler. */
+    /* Donations disabled for multi-level feedback queue scheduler. */
     if (!thread_mlfqs)
     {
       int acq_priority = thread_current ()->curr_priority;
@@ -246,14 +251,16 @@ lock_acquire (struct lock *lock)
         /* Reassign lock to avoid compiler optimizing out while loop. */
         struct lock *curr_lock = lock; 
         while (curr_lock != NULL)
-        {
-          donate_priority (curr_lock, acq_priority); 
-          curr_lock = curr_lock->holder->desired_lock;
-        }
+          {
+            donate_priority (curr_lock, acq_priority); 
+            curr_lock = curr_lock->holder->desired_lock;
+          }
       }
     }
   }
-  sema_down (&lock->semaphore); /* Blocks thread if priority was donated. */
+
+  /* Blocks thread if priority was donated. */
+  sema_down (&lock->semaphore);
 
   /* Lock is free to be acquired. */
   lock->holder = thread_current (); 
@@ -265,7 +272,9 @@ lock_acquire (struct lock *lock)
 
 /* Sets priority of lock holder to donated priority. Sets lock's priority
    to donated priority. Updates (reorders) holder's held_locks list. Sorts
-   the thread library's ready_list to reflect new priority of donee. */
+   the thread library's ready queue to reflect new priority of donee. 
+   
+   Function can only called by the round-robin scheduler. */
 static void 
 donate_priority (struct lock *lock, int priority)
 {
@@ -308,7 +317,10 @@ lock_try_acquire (struct lock *lock)
   return success;
 }
 
-/* Releases LOCK, which must be owned by the current thread.
+/* Releases LOCK, which must be owned by the current thread. 
+   If using the round-robin scheduler, the current thread also 
+   releases the donation associated with LOCK, if any, and
+   resets it's priority.
 
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
@@ -325,9 +337,8 @@ lock_release (struct lock *lock)
   list_remove (&lock->elem);
 
   /* Thread had donation for this lock, so change curr_priority
-     based on whether there are other donations or not. 
-     
-     Disabled for the multi-level feedback queue scheduler. */
+     based on whether there are other donations or not. Disabled
+     for the multi-level feedback queue scheduler. */
   if (!thread_mlfqs)
   {
     if (t->num_donations > 0 && lock->priority != NO_DONATIONS_PRI)

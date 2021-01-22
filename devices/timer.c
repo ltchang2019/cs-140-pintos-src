@@ -93,8 +93,8 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/* Sleeps for approximately TICKS timer ticks. Internally, adds new sleeping thread
-   to sleeping_threads_list and blocks current thread. */
+/* Sleeps for approximately TICKS timer ticks. Internally, adds new sleeping
+   thread to sleeping_threads_list and blocks current thread. */
 void
 timer_sleep (int64_t ticks) 
 {
@@ -106,7 +106,8 @@ timer_sleep (int64_t ticks)
 
   old_level = intr_disable ();
 
-  list_insert_ordered (&sleeping_threads_list, &sleeping_thread.elem, cmp_sleeping_threads, NULL);
+  list_insert_ordered (&sleeping_threads_list, &sleeping_thread.elem,
+                       cmp_sleeping_threads, NULL);
   thread_block ();
 
   intr_set_level (old_level);
@@ -117,9 +118,9 @@ static bool
 cmp_sleeping_threads (const struct list_elem *a,
                      const struct list_elem *b,
                      void *aux UNUSED) {
-    int64_t a_wake_time = list_entry (a, struct sleeping_thread, elem)->wake_time;
-    int64_t b_wake_time = list_entry (b, struct sleeping_thread, elem)->wake_time;
-  return a_wake_time < b_wake_time;
+    int64_t a_wake = list_entry (a, struct sleeping_thread, elem)->wake_time;
+    int64_t b_wake = list_entry (b, struct sleeping_thread, elem)->wake_time;
+  return a_wake < b_wake;
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -200,6 +201,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   check_sleeping_threads ();
   thread_tick ();
 
+  /* If multi-level feedback queue scheduler in use, do calculations. */
   if (thread_mlfqs)
     mlfqs_tick (ticks);
 }
@@ -213,18 +215,18 @@ check_sleeping_threads(void)
   struct sleeping_thread *front_sleeping;
 
   while (!list_empty (&sleeping_threads_list))
-  {
-    front_elem = list_front (&sleeping_threads_list);
-    front_sleeping = list_entry (front_elem, struct sleeping_thread, elem);
-    
-    if (front_sleeping->wake_time <= ticks)
     {
-      list_pop_front (&sleeping_threads_list);
-      thread_wake (front_sleeping->thread);
-    } 
-    else
-      break;
-  }
+      front_elem = list_front (&sleeping_threads_list);
+      front_sleeping = list_entry (front_elem, struct sleeping_thread, elem);
+    
+      if (front_sleeping->wake_time <= ticks)
+      {
+        list_pop_front (&sleeping_threads_list);
+        thread_wake (front_sleeping->thread);
+      } 
+      else
+        break;
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

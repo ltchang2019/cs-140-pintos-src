@@ -15,9 +15,9 @@ struct semaphore
 /* One semaphore in a list. */
 struct sema_elem 
   {
-    struct semaphore semaphore;         /* This semaphore. */
-    struct thread *sema_t;              /* Waiting thread. */
-    struct list_elem elem;              /* List element. */
+    struct semaphore semaphore; /* This semaphore. */
+    struct thread *sema_t;      /* Waiting thread. */
+    struct list_elem elem;      /* List element. */
   };
 
 void sema_init (struct semaphore *, unsigned value);
@@ -34,7 +34,7 @@ struct lock
   {
     struct thread *holder;      /* Thread holding lock (for debugging). */
     int priority;               /* Highest donated priority for this lock.
-                                   Has value -1 if there are no donations. */
+                                   Default -1 if there are no donations. */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
     struct list_elem elem;      /* List element. */
   };

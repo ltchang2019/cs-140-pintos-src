@@ -9,11 +9,12 @@
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
 
+/* A sleeping thread. */
 struct sleeping_thread 
 {
-  int64_t wake_time;
-  struct thread *thread;
-  struct list_elem elem;
+  int64_t wake_time;     /* Time after which thread should wake up. */
+  struct thread *thread; /* This thread. */
+  struct list_elem elem; /* List element. */
 };
 
 void timer_init (void);

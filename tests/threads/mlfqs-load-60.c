@@ -126,7 +126,6 @@ test_mlfqs_load_60 (void)
       snprintf(name, sizeof name, "load %d", i);
       thread_create (name, PRI_DEFAULT, load_thread, NULL);
     }
-
   msg ("Starting threads took %d seconds.",
        timer_elapsed (start_time) / TIMER_FREQ);
   

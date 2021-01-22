@@ -85,22 +85,22 @@ typedef int tid_t;
 struct thread
   {
     /* Owned by thread.c. */
-    tid_t tid;                          /* Thread identifier. */
-    enum thread_status status;          /* Thread state. */
-    char name[16];                      /* Name (for debugging purposes). */
-    uint8_t *stack;                     /* Saved stack pointer. */
-    int curr_priority;                  /* Current priority. */
-    int owned_priority;                 /* Priority set by owning thread only. */
-    struct list_elem allelem;           /* List element for all threads list. */
+    tid_t tid;                        /* Thread identifier. */
+    enum thread_status status;        /* Thread state. */
+    char name[16];                    /* Name (for debugging purposes). */
+    uint8_t *stack;                   /* Saved stack pointer. */
+    int curr_priority;                /* Current priority. */
+    int owned_priority;               /* Priority set by owning thread only. */
+    struct list_elem allelem;         /* List element for all threads list. */
 
     /* For priority donation. */
-    int num_donations;                  /* Number of priority donations thread holds. */
-    struct list held_locks;             /* List of locks held by thread. */
-    struct lock *desired_lock;          /* Lock thread is waiting (blocked) on. */
+    int num_donations;                /* Number of priority donations. */
+    struct list held_locks;           /* List of locks held by thread. */
+    struct lock *desired_lock;        /* Lock that thread is blocked on. */
 
-    /* For advanced scheduler. */
-    int nice;
-    fixed32_t recent_cpu;
+    /* For multi-level feedback queue scheduler. */
+    int nice;                         /* Thread generosity with CPU time. */
+    fixed32_t recent_cpu;             /* Thread recent CPU usage. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -155,6 +155,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
 void calc_load_avg (void);
 void increment_recent_cpu (void);
 fixed32_t load_avg_coeff (void);

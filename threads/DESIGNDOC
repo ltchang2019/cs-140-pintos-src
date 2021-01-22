@@ -105,8 +105,8 @@ FirstName LastName <email@domain.example>
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0
- 4
+ 0      
+ 4        
  8
 12
 16
