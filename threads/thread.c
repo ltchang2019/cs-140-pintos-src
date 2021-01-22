@@ -65,12 +65,22 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+/* System load average, used by the multi-level feedback queue scheduler
+   to assign priorities to threads. Calculated as an estimate of the
+   average number of threads ready to run over the past minute. */
+static fixed32_t load_avg;
+
+/* Constants used by the multi-level feedback queue scheduler. */
+#define NICE_MAX 20
+#define NICE_MIN -20
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
-static void init_thread (struct thread *, const char *name, int priority);
+static void init_thread (struct thread *, const char *name, int priority,
+                         int nice, fixed32_t recent_cpu);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
@@ -111,13 +121,17 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
+  /* Initializations when using multi-level feedback queue scheduler. */
+  if (thread_mlfqs)
+    load_avg = 0;
+
   lock_init (&tid_lock);
   ready_queue_init (&ready_queue);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  init_thread (initial_thread, "main", PRI_DEFAULT);
+  init_thread (initial_thread, "main", PRI_DEFAULT, 0, 0);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 
@@ -206,7 +220,8 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
 
   /* Initialize thread. */
-  init_thread (t, name, priority);
+  struct thread *cur = thread_current ();
+  init_thread (t, name, priority, cur->nice, cur->recent_cpu);
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -340,11 +355,32 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
+  if (cur != idle_thread)
     ready_queue_insert (&ready_queue, cur);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+/* Preempts the running thread if a thread of higher priority is
+   ready to run. */
+void
+thread_preempt (void)
+{
+  if (!ready_queue_empty (&ready_queue))
+    {
+      struct thread *ready_thread = ready_queue_front (&ready_queue);
+      if (ready_thread->curr_priority > thread_current ()->curr_priority)
+        thread_yield ();
+    }
+}
+
+/* Puts a sleeping thread that was just woken up into the ready queue. */
+void
+thread_wake (struct thread *t)
+{
+  ready_queue_insert (&ready_queue, t);
+  t->status = THREAD_READY;
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -367,29 +403,21 @@ thread_foreach (thread_action_func *func, void *aux)
 /* Sets the current thread's priority to NEW_PRIORITY. 
    
    This function preempts the running thread if the highest priority
-   thread in the ready queue has priority higher than NEW_PRIORITY. */
+   thread in the ready queue has priority higher than NEW_PRIORITY.
+   
+   Function call ignored if multi-level feedback queue scheduler is used. */
 void
 thread_set_priority (int new_priority) 
 {
+  if (thread_mlfqs)
+    return;
+
   struct thread *t = thread_current ();
   t->owned_priority = new_priority;
   if (t->num_donations == 0 || new_priority > t->curr_priority)
     t->curr_priority = new_priority;                            
 
-  thread_check_preempt ();
-}
-
-/* Compares priority of running thread to highest priority ready
-   thread and immediately yields if necessary. */
-static void 
-thread_check_preempt (void)
-{
-  if (!ready_queue_empty (&ready_queue))
-    {
-      struct thread *ready_thread = ready_queue_front (&ready_queue);
-      if (ready_thread->curr_priority > thread_current ()->curr_priority)
-        thread_yield ();
-    }
+  thread_preempt ();
 }
 
 /* Resets `ready` thread's curr_priority and readds it to ready_list.
@@ -398,7 +426,7 @@ void
 thread_set_donated_priority (struct thread *t, int priority)
 {
   t->curr_priority = priority;
-  if (t->curr_priority == THREAD_READY)
+  if (t->status == THREAD_READY)
   {
     ready_queue_remove (&ready_queue, t);
     ready_queue_insert (&ready_queue, t);
@@ -457,7 +485,12 @@ mlfqs_calc_load_avg (void)
 void
 thread_set_nice (int nice) 
 {
-  thread_current ()->nice = nice;
+  ASSERT (nice >= NICE_MIN && nice <= NICE_MAX);
+
+  struct thread *cur = thread_current ();
+  cur->nice = nice;
+  calc_priority (cur, NULL);
+  thread_preempt ();
 }
 
 /* Returns the current thread's nice value. */
@@ -471,15 +504,74 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fixed_to_two_decimal_format (load_avg);
+}
+
+/* Recalculates the new system load average according to the formula:
+   load_avg = (59/60)*load_avg + (1/60)*ready_threads */
+static const fixed32_t frac_59_60 = (59 * FIXED32_CONST) / 60;
+static const fixed32_t frac_1_60 = FIXED32_CONST / 60;
+void
+calc_load_avg (void) 
+{
+  int q_size = ready_queue_size (&ready_queue);
+  int num_ready = (thread_current () != idle_thread) ? q_size + 1 : q_size;
+  fixed32_t term_1 = mul_fixed_fixed (frac_59_60, load_avg);
+  fixed32_t term_2 = mul_fixed_int (frac_1_60, num_ready);
+  load_avg = term_1 + term_2;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  return thread_current ()->recent_cpu;
+  return fixed_to_two_decimal_format (thread_current ()->recent_cpu);
+}
+
+/* Increment recent_cpu of the running thread by 1, unless it is
+   the idle thread. */
+void
+increment_recent_cpu (void)
+{
+  struct thread *cur = thread_current ();
+  if (cur != idle_thread)
+    cur->recent_cpu = add_fixed_int(cur->recent_cpu, 1);
+}
+
+/* Returns (2*load_avg)/(2*load_avg + 1), used by calc_recent_cpu. */
+fixed32_t
+load_avg_coeff (void)
+{
+  fixed32_t load_avg_numer = mul_fixed_int (load_avg, 2);
+  fixed32_t load_avg_denom = add_fixed_int (load_avg_numer, 1);
+  return div_fixed_fixed (load_avg_numer, load_avg_denom);
+}
+
+/* Recalculates recent_cpu of a thread T according to the formula:
+   recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice */
+void
+calc_recent_cpu (struct thread *t, void *aux)
+{
+  fixed32_t term_1 = mul_fixed_fixed(*((fixed32_t *) aux), t->recent_cpu);
+  t->recent_cpu = add_fixed_int(term_1, t->nice);
+}
+
+/* Recalculates priority of a thread T according to the formula:
+   priority = PRI_MAX - (recent_cpu / 4) - (nice * 2) */
+static const fixed32_t pri_max_fixed = PRI_MAX * FIXED32_CONST;
+void
+calc_priority (struct thread *t, void *aux UNUSED)
+{
+  fixed32_t recent_cpu_4 = div_fixed_int (t->recent_cpu, 4);
+  fixed32_t nice_2 = int_to_fixed (t->nice * 2);
+  fixed32_t new_pri_fixed = pri_max_fixed - recent_cpu_4 - nice_2;
+  int new_pri = fixed_to_int_rzero (new_pri_fixed);
+  if (new_pri > PRI_MAX)
+    t->curr_priority = PRI_MAX;
+  else if (new_pri < PRI_MIN)
+    t->curr_priority = PRI_MIN;
+  else
+    t->curr_priority = new_pri;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -555,7 +647,8 @@ is_thread (struct thread *t)
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
-init_thread (struct thread *t, const char *name, int priority)
+init_thread (struct thread *t, const char *name, int priority,
+             int nice, fixed32_t recent_cpu)
 {
   enum intr_level old_level;
 
@@ -567,8 +660,16 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->owned_priority = priority;
-  t->curr_priority = priority;
+
+  t->nice = nice;
+  t->recent_cpu = recent_cpu;
+  if (!thread_mlfqs)
+  {
+    t->owned_priority = priority;
+    t->curr_priority = priority;
+  }
+  else
+    calc_priority(t, NULL);
 
   t->num_donations = 0;
   t->desired_lock = NULL;

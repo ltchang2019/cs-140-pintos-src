@@ -235,16 +235,21 @@ lock_acquire (struct lock *lock)
   if (lock->holder != NULL)
   {
     thread_current ()->desired_lock = lock;
-
-    int acq_priority = thread_current ()->curr_priority;
-    if (acq_priority > lock->holder->curr_priority) 
+    
+    /* Priority donation disabled for multi-level feedback
+       queue scheduler. */
+    if (!thread_mlfqs)
     {
-      /* Reassign lock to avoid compiler optimizing out while loop. */
-      struct lock *curr_lock = lock; 
-      while (curr_lock != NULL)
+      int acq_priority = thread_current ()->curr_priority;
+      if (acq_priority > lock->holder->curr_priority) 
       {
-        donate_priority (curr_lock, acq_priority); 
-        curr_lock = curr_lock->holder->desired_lock;
+        /* Reassign lock to avoid compiler optimizing out while loop. */
+        struct lock *curr_lock = lock; 
+        while (curr_lock != NULL)
+        {
+          donate_priority (curr_lock, acq_priority); 
+          curr_lock = curr_lock->holder->desired_lock;
+        }
       }
     }
   }
@@ -320,19 +325,24 @@ lock_release (struct lock *lock)
   list_remove (&lock->elem);
 
   /* Thread had donation for this lock, so change curr_priority
-     based on whether there are other donations or not. */
-  if (t->num_donations > 0 && lock->priority != NO_DONATIONS_PRI)
+     based on whether there are other donations or not. 
+     
+     Disabled for the multi-level feedback queue scheduler. */
+  if (!thread_mlfqs)
+  {
+    if (t->num_donations > 0 && lock->priority != NO_DONATIONS_PRI)
     {
       t->num_donations--;
       if (t->num_donations == 0) 
         t->curr_priority = t->owned_priority;
       else 
-        {
-          struct list_elem *lock_elem = list_front (&t->held_locks);
-          struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
-          t->curr_priority = next_lock->priority;
-        }
+      {
+        struct list_elem *lock_elem = list_front (&t->held_locks);
+        struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
+        t->curr_priority = next_lock->priority;
+      }
     }
+  }
 
   /* Signal the waiting thread of highest priority that lock is available. */
   lock->holder = NULL;
@@ -417,8 +427,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) 
+  {
+    list_sort (&cond->waiters, cmp_sema_elem, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct sema_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
