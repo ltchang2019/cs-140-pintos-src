@@ -103,6 +103,8 @@
 #include "threads/thread.h"
 #include "devices/timer.h"
 
+#include "threads/fixed-point.h"
+
 /* Sensitive to assumption that recent_cpu updates happen exactly
    when timer_ticks() % TIMER_FREQ == 0. */
 
@@ -116,6 +118,18 @@ test_mlfqs_recent_1 (void)
 
   do 
     {
+      /*
+      int recent_cpu = thread_get_recent_cpu ();
+      int load_avg = thread_get_load_avg ();
+      int nice = thread_get_nice ();
+      printf ("recent_cpu of thread: ");
+      printf ("%d.%02d\n", recent_cpu / 100, recent_cpu % 100);
+      printf ("load_avg of system:   ");
+      printf ("%d.%02d\n", load_avg / 100, load_avg % 100);
+      printf("thread nice:           ");
+      printf("%d\n", nice);
+      */
+
       msg ("Sleeping 10 seconds to allow recent_cpu to decay, please wait...");
       start_time = timer_ticks ();
       timer_sleep (DIV_ROUND_UP (start_time, TIMER_FREQ) - start_time
