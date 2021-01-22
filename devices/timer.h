@@ -9,6 +9,8 @@
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
 
+/* Struct stored in timer's sleeping_threads list. 
+   Contains wake time measured in ticks. */
 struct sleeping_thread 
 {
   int64_t wake_time;

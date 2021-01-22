@@ -98,13 +98,11 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  enum intr_level old_level;
   struct sleeping_thread sleeping_thread;
-
   sleeping_thread.thread = thread_current ();
   sleeping_thread.wake_time = timer_ticks () + ticks;
 
-  old_level = intr_disable ();
+  enum intr_level old_level = intr_disable ();
 
   list_insert_ordered (&sleeping_threads_list, &sleeping_thread.elem, cmp_sleeping_threads, NULL);
   thread_block ();
@@ -201,23 +199,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   thread_tick ();
 
   if (thread_mlfqs)
-  {
-    /* Increment recent_cpu of running thread by 1 */
-    increment_recent_cpu ();
-
-    /* Update system load average and recent_cpu of each thread
-       once per second. */
-    if (ticks % TIMER_FREQ == 0)
-    {
-      calc_load_avg ();
-      fixed32_t coeff = load_avg_coeff ();
-      thread_foreach(calc_recent_cpu, &coeff);
-    }
-
-    /* Update priority of each thread once every fourth tick. */
-    if (ticks % 4 == 0)
-      thread_foreach(calc_priority, NULL);
-  }
+    mlfqs_tick (ticks);
 }
 
 /* Checks sleeping_threads_list and wakes up any threads that have
