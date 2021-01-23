@@ -402,12 +402,18 @@ thread_set_priority (int new_priority)
   if (thread_mlfqs)
     return;
 
+  enum intr_level old_level = intr_get_level ();
+
   struct thread *t = thread_current ();
   t->owned_priority = new_priority;
   if (t->num_donations == 0 || new_priority > t->curr_priority)
-    t->curr_priority = new_priority;                            
+  {
+    intr_disable ();
+    t->curr_priority = new_priority;
+  }
 
   thread_check_preempt ();
+  intr_set_level (old_level);
 }
 
 /* Resets `ready` thread's curr_priority and readds it to the ready queue.
