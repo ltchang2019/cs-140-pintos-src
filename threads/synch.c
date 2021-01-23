@@ -59,23 +59,23 @@ sema_init (struct semaphore *sema, unsigned value)
    to signal one or more other threads through the use of a condition
    variable containing a list of such semaphores. */
 void
-sema_elem_init (struct sema_elem *sema_elem)
+thread_sema_pair_init (struct thread_sema_pair *thread_sema_pair)
 {
-  ASSERT (sema_elem != NULL);
+  ASSERT (thread_sema_pair != NULL);
 
-  sema_elem->sema_t = thread_current ();
-  sema_init(&sema_elem->semaphore, 0);
+  thread_sema_pair->waiting_thread = thread_current ();
+  sema_init(&thread_sema_pair->semaphore, 0);
 }
 
 /* Comparison function for semaphores in a list owned by a condition
    variable. Compares by priority of the threads associated with each
    semaphore. Sorts in descending order. */
 bool
-cmp_sema_elem (const struct list_elem *a, const struct list_elem *b,
+cmp_thread_sema_pair (const struct list_elem *a, const struct list_elem *b,
                void *aux UNUSED)
 {
-  int a_pri = list_entry (a, struct sema_elem, elem)->sema_t->curr_priority;
-  int b_pri = list_entry (b, struct sema_elem, elem)->sema_t->curr_priority;
+  int a_pri = list_entry (a, struct thread_sema_pair, elem)->waiting_thread->curr_priority;
+  int b_pri = list_entry (b, struct thread_sema_pair, elem)->waiting_thread->curr_priority;
   return a_pri > b_pri;
 }
 
@@ -212,7 +212,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
-  lock->priority = NO_DONATIONS_PRI;
+  lock->donated_priority = NO_DONATIONS_PRI;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -242,7 +242,7 @@ lock_acquire (struct lock *lock)
   {
     thread_current ()->desired_lock = lock;
     
-    /* Donations disabled for multi-level feedback queue scheduler. */
+    /* Priority donation disabled for advanced scheduler. */
     if (!thread_mlfqs)
     {
       int acq_priority = thread_current ()->curr_priority;
@@ -285,12 +285,12 @@ donate_priority (struct lock *lock, int priority)
 
   /* A thread's num_donations corresponds to number of held locks
      with priority donations. */
-  if (lock->priority == NO_DONATIONS_PRI)  
+  if (lock->donated_priority == NO_DONATIONS_PRI)  
     holder->num_donations++;
   
   /* Donated priority always highest so corresponding lock should 
      be moved to front of held_locks list owned by thread. */
-  lock->priority = priority;
+  lock->donated_priority = priority;
   list_remove (&lock->elem);
   list_push_front (&holder->held_locks, &lock->elem);
 
@@ -341,7 +341,7 @@ lock_release (struct lock *lock)
      for the multi-level feedback queue scheduler. */
   if (!thread_mlfqs)
   {
-    if (t->num_donations > 0 && lock->priority != NO_DONATIONS_PRI)
+    if (t->num_donations > 0 && lock->donated_priority != NO_DONATIONS_PRI)
     {
       t->num_donations--;
       if (t->num_donations == 0) 
@@ -350,14 +350,14 @@ lock_release (struct lock *lock)
       {
         struct list_elem *lock_elem = list_front (&t->held_locks);
         struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
-        t->curr_priority = next_lock->priority;
+        t->curr_priority = next_lock->donated_priority;
       }
     }
   }
 
   /* Signal the waiting thread of highest priority that lock is available. */
   lock->holder = NULL;
-  lock->priority = NO_DONATIONS_PRI;
+  lock->donated_priority = NO_DONATIONS_PRI;
   sema_up (&lock->semaphore);
 
   intr_set_level (old_level);
@@ -408,15 +408,15 @@ cond_init (struct condition *cond)
 void
 cond_wait (struct condition *cond, struct lock *lock) 
 {
-  struct sema_elem waiter;
+  struct thread_sema_pair waiter;
 
   ASSERT (cond != NULL);
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
   
-  sema_elem_init (&waiter);
-  list_insert_ordered (&cond->waiters, &waiter.elem, cmp_sema_elem, NULL);
+  thread_sema_pair_init (&waiter);
+  list_insert_ordered (&cond->waiters, &waiter.elem, cmp_thread_sema_pair, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -439,9 +439,9 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)) 
   {
-    list_sort (&cond->waiters, cmp_sema_elem, NULL);
+    list_sort (&cond->waiters, cmp_thread_sema_pair, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct sema_elem, elem)->semaphore);
+                          struct thread_sema_pair, elem)->semaphore);
   }
 }
 

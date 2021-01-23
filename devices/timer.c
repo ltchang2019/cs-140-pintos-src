@@ -98,13 +98,11 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  enum intr_level old_level;
   struct sleeping_thread sleeping_thread;
-
   sleeping_thread.thread = thread_current ();
   sleeping_thread.wake_time = timer_ticks () + ticks;
 
-  old_level = intr_disable ();
+  enum intr_level old_level = intr_disable ();
 
   list_insert_ordered (&sleeping_threads_list, &sleeping_thread.elem,
                        cmp_sleeping_threads, NULL);
