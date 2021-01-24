@@ -112,7 +112,7 @@ static inline int fixed_to_int_rzero (fixed32_t x) {
 static inline int fixed_to_int_rnearest (fixed32_t x) {
   if (x > sub_fixed_fixed (FIXED32_MAX, ONE_HALF))
     return fixed_to_int_rzero (x) + 1;
-  else if (x < add_fixed_fixed(FIXED32_MIN, ONE_HALF))
+  else if (x < add_fixed_fixed (FIXED32_MIN, ONE_HALF))
     return fixed_to_int_rzero (x) - 1;
   else if (x > 0)
     return fixed_to_int_rzero (add_fixed_fixed (x, ONE_HALF));

@@ -64,7 +64,7 @@ thread_sema_pair_init (struct thread_sema_pair *thread_sema_pair)
   ASSERT (thread_sema_pair != NULL);
 
   thread_sema_pair->waiting_thread = thread_current ();
-  sema_init(&thread_sema_pair->semaphore, 0);
+  sema_init (&thread_sema_pair->semaphore, 0);
 }
 
 /* Comparison function for semaphores in a list owned by a condition
@@ -74,8 +74,10 @@ bool
 cmp_thread_sema_pair (const struct list_elem *a, const struct list_elem *b,
                void *aux UNUSED)
 {
-  int a_pri = list_entry (a, struct thread_sema_pair, elem)->waiting_thread->curr_priority;
-  int b_pri = list_entry (b, struct thread_sema_pair, elem)->waiting_thread->curr_priority;
+  int a_pri = list_entry (a, struct thread_sema_pair, elem)
+                          ->waiting_thread->curr_priority;
+  int b_pri = list_entry (b, struct thread_sema_pair, elem)
+                          ->waiting_thread->curr_priority;
   return a_pri > b_pri;
 }
 
@@ -331,7 +333,7 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
   
-  enum intr_level old_level = intr_disable();
+  enum intr_level old_level = intr_disable ();
 
   struct thread *t = thread_current ();
   list_remove (&lock->elem);

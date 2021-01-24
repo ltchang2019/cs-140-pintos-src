@@ -32,17 +32,17 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
-static void check_sleeping_threads(void);
-static bool cmp_sleeping_threads(const struct list_elem *a,
-                                 const struct list_elem *b,
-                                 void *aux UNUSED);
+static void check_sleeping_threads (void);
+static bool cmp_sleeping_threads (const struct list_elem *a,
+                                  const struct list_elem *b,
+                                  void *aux UNUSED);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
-  list_init(&sleeping_threads_list);
+  list_init (&sleeping_threads_list);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -207,7 +207,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 /* Checks sleeping_threads_list and wakes up any threads that have
    met or exceeded their sleep times. */
 static void
-check_sleeping_threads(void)
+check_sleeping_threads (void)
 {
   struct list_elem *front_elem;
   struct sleeping_thread *front_sleeping;
