@@ -43,7 +43,7 @@ struct sleeping_thread
 	struct list_elem elem;
 }
 
-/* List of threads put to sleep by timer_sleep */
+/* List of threads put to sleep by timer_sleep. */
 static struct list sleeping_threads_list;
 
 ---- ALGORITHMS ----
@@ -94,16 +94,16 @@ has finished its update.
 The thread calling timer_sleep() could be interrupted as it is inserting 
 into the sleeping_theads_list by the timer interrupt handler, which calls
 check_sleeping_threads(), a function that potentially removes from the
-sleeping_threads_list. This race condition where sleeping_threads_list is
+sleeping_threads_list. This race condition, where sleeping_threads_list is
 concurrently modified by the one thread’s call to timer_sleep() and the
-interrupt handler’s call to check_sleeping_threads() is also handled by
+interrupt handler’s call to check_sleeping_threads(), is also handled by
 disabling interrupts before inserting into the sleeping_threads_list in
-timer_sleep(). This prevents the timer from interrupting the thread calling
-timer_sleep() when it is updating the sleeping_threads_list. We don’t need
-to worry about the timer’s call to check_sleeping_threads() being interrupted
-when it is removed from the list, however, as the timer interrupt handler
-itself cannot be interrupted.
-
+timer_sleep(). Similar to the previous answer, this prevents the timer from
+interrupting the thread calling timer_sleep() when it is updating the
+sleeping_threads_list, making updates atomic. We don’t need to worry about
+the timer’s call to check_sleeping_threads() being interrupted when it is
+removed from the list, however, as the timer interrupt handler itself cannot
+be interrupted.
 
 ---- RATIONALE ----
 
@@ -145,7 +145,7 @@ complexity, therefore we elected to use a separate sleeping_thread struct.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-Added to struct thread:
+Added to thread.c/h:
 struct thread
 {
 ...
@@ -158,6 +158,7 @@ struct lock *desired_lock;  /* Lock thread is waiting (blocked) on. */
 ...
 }
 
+Added to synch.c/h:
 /* Lock struct containing reference to thread that currently
    holds the lock, the highest priority donated to the holder 
    for this lock, a semaphore used internally (has value of 1 
@@ -188,17 +189,21 @@ struct thread_sema_pair
 The data structures used to track priority donation are an additional
 priority field in the thread struct (so that thread struct has both
 curr_priority and owned_priority), a list of locks held by each thread
-in the thread struct, and a donated priority field within each lock
-struct. When a thread A with priority 20, for example, wants to donate
-to a thread B with priority 10 because it wants lock L that thread B holds,
-the donated priority field in lock L is set to 20 and curr_priority of
-thread B is set to 20. The owned_priority field of thread B is still 10,
-so that when thread B releases lock L, the donated priority field of lock L
-is reset to default -1, and thread B releases the donated priority by
-resetting curr_priority to owned_priority, which is 10.
+in the thread struct, a donated_priority field within each lock
+struct, and a num_donations field to keep track of the number of relevant 
+donations a thread has received. When a thread A with priority 20, for 
+example, wants to donate to a thread B with priority 10 because it wants
+lock L that thread B holds, the donated_priority field in lock L is set to 20,
+the curr_priority of thread B is set to 20, and the num_donations of
+thread B is incremented from 0 to 1. The owned_priority field of thread B
+is still 10. When thread B releases lock L, the donated priority
+field of lock L is reset to default -1, thread B releases the donated
+priority by resetting curr_priority to owned_priority (10), and thread B's
+num_donations is decremented back down to 0.
 
-Refer to nested-donation.png in our submission for an illustration of how
-nested donation is implemented using the data structures described above.
+Refer to nested-donation.png in our submission (in the threads directory) 
+for an illustration of how nested donation is implemented using the data
+structures described above.
 
 ---- ALGORITHMS ----
 
@@ -212,7 +217,8 @@ semaphore’s waiters list. Once we began the advanced scheduler, we realized
 that the priorities of all threads would be changing quite frequently and
 that the cost of reinserting threads into the waiters list each time a thread
 got a new priority (every four ticks) would be costly. Sorting only before
-popping in a call to sema_up() was the more efficient option.
+popping in a call to sema_up() ended up being a more efficient way of keeping
+order than ordered insertion.
 
 Because locks internally use a single semaphore, sorting in sema_up() before
 unblocking a thread ensures that calling lock_release() for a given lock
@@ -237,15 +243,15 @@ must go through with priority donation. Priority donation is implemented
 by visiting lock->holder, updating lock->holder’s priority to the donated
 priority, and setting lock to be lock->holder->desired_lock for as long as
 lock->holder->desired_lock != NULL. This essentially follows the nested
-sequence of lock holders and updates all of their priorities with the calling
+sequence of lock holders and updates all of their priorities to be the calling
 thread’s priority until we reach a thread which is not blocked on any desired
 lock (i.e., a thread in the ready queue). We also make sure to remove and
 reinsert each thread in the sequence into the waiters list for the lock it
 is blocked on after the donation to maintain priority-based ordering.
 
 Once all threads in the nested sequence have received the donated priority,
-we call sema_up() on the original lock, which blocks the calling thread and
-yields the CPU to the first thread in the ready queue, which is the last
+the calling thread calls sema_up() on the original lock, which blocks itself 
+and yields the CPU to the first thread in the ready queue, which is the last
 thread in the nested sequence of donations (provided there are no other
 threads of even higher priority).
 
@@ -260,14 +266,14 @@ has had at least one donation pass through it). We then decrement the
 thread’s num_donations by one.
 
 We then must determine whether or not to set the thread’s priority to another
-(lower) donated priority or to its original owned priority. If the thread’s
+(lower) donated priority or to its original owned_priority. If the thread’s
 num_donations == 0, we know the thread has no more donations to consider and
 we set the thread’s curr_priority to its owned_priority. If num_donations > 0,
 we know the thread still has other donations to handle so we set the thread’s
 curr_priority to the highest priority contained in any of its held locks.
 
 We then reset the lock’s holder field to NULL and it’s priority field to -1
-(indicating no current donations through the lock being used). Finally, we
+(indicating no current donations through the lock are being used). Finally, we
 call sema_up() to unblock the highest priority thread waiting for the lock.
 
 ---- SYNCHRONIZATION ----
@@ -276,14 +282,15 @@ call sema_up() to unblock the highest priority thread waiting for the lock.
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
-Potential race condition: running thread is interrupted during execution of
-thread_set_priority(), before setting its own priority (e.g., 10) to
-new_priority (e.g., 20), and another thread with higher priority (e.g., 30)
-is selected to run and donates its priority to original running thread
-(because it blocks on a lock that original thread has), then original thread
-eventually resumes in thread_set_priority() and overwrites the donation so
-that priority of original thread ends up as 20, instead of the correct value
-of 30.
+Potential race condition: 
+1) Running thread is interrupted during execution of thread_set_priority() 
+   before it has set its own priority (e.g., 10) to new_priority (e.g., 20).
+2) Another thread with higher priority (e.g., 30) is selected to run and 
+   donates its priority to original running thread (because it blocks on a 
+   lock that original thread has).
+3) The original thread eventually resumes in thread_set_priority() and 
+   overwrites the donation so that priority of original thread ends up as 20,
+   instead of the correct value of 30.
 
 We disable interrupts before entering the critical section where we check
 new_priority > curr_priority, as this ensures that once we have confirmed that
@@ -297,15 +304,15 @@ behavior.
 Pairing each thread’s current priority with a lock (called say priority_lock)
 does not solve the problem. Say thread A with priority 5 acquires lock_A then
 calls thread_set_priority(6). In thread_set_priority, thread A acquires its
-priority_lock but is then interrupted and swapped off the CPU for thread B
-with priority 10. Thread B wants to acquire lock_A so it tries to donate its
-priority to thread A. In order to donate (update) thread A’s priority, it must
-acquire thread A’s priority_lock. Because Thread A already holds its own
-priority_lock, Thread B cannot donate and will be blocked on lock_acquire().
-This leaves us in the priority inversion scenario, as any thread C with a
-priority in between A and B could stop thread A from releasing it’s
-priority_lock for as long as it is running.
-
+priority_lock but is then interrupted and swapped off the CPU for a new 
+thread B with priority 10. Thread B wants to acquire lock_A so it tries to 
+donate its priority to thread A. In order to donate (update) thread A’s
+priority, it must acquire thread A’s priority_lock. Because thread A already
+holds its own priority_lock, thread B cannot donate and will be blocked on
+lock_acquire(). This leaves us in the priority inversion scenario, as any
+thread C with a priority in between A and B (say priority of 8) could stop
+thread A from resuming and releasing it’s priority_lock for as long as it is
+running, also keeping thread B blocked on lock_acquire.
 
 ---- RATIONALE ----
 
@@ -319,7 +326,7 @@ element as the current priority. While implementing this, we realized that
 doing so would require heap allocating new structs every time a thread
 acquired a lock and freeing every time a thread released the lock. Giving
 the locks the donated_priority field allowed us to avoid the extra cost of
-allocations by simply using the pointers to the lock structs already created.
+allocations by simply using pointers to the lock structs already created.
 
 Another design consideration concerns the list of held locks in each thread
 struct. In our design, whenever a thread acquires a lock, that lock is
@@ -347,8 +354,7 @@ of ready threads or sleeping threads, are also sorted).
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-New in ready_queue.h:
-
+New in ready_queue.c/h:
 /* Number of queues of ready threads that the scheduler maintains. */
 #define NUM_QUEUES (PRI_MAX - PRI_MIN + 1)
 
@@ -362,7 +368,6 @@ struct ready_queue
 }
 
 New in thread.c:
-
 /* An instance of struct ready_queue that contains processes in the
    THREAD_READY state (i.e., processes that are ready to run but
    not currently running). */
@@ -372,8 +377,7 @@ static struct ready_queue ready_queue;
    of threads based on a specific formula. */
 static fixed32_t load_avg;
 
-New in thread.h, added to struct thread:
-
+New in thread.h (added to struct thread):
 /* Members to allow the scheduler to calculate nice, recent_cpu, and priority
    values for all threads. */
 int nice;    		  /* A measure of generosity with its CPU time. */
@@ -387,11 +391,11 @@ fixed32_t recent_cpu; /* A measure of “recently” received CPU time. */
 >> thread after each given number of timer ticks:
 
 Assumptions on the calculations:
-	1. load_avg is 0 for the duration of 0 to 36 timer ticks
-	2. at no point does timer_ticks % TIMER_FREQ == 0
-	   (i.e., recent_cpu and load_avg do not undergo batch updates)
-   	3. a running thread yields to a ready thread of equal priority when
-       it’s time slice is over, assuming no threads have higher priorities
+	1. Load_avg is 0 for the duration of 0 to 36 timer ticks.
+	2. At no point does timer_ticks % TIMER_FREQ == 0
+	   (i.e., recent_cpu and load_avg do not undergo batch updates).
+   	3. A running thread yields to a ready thread of equal priority when
+       it’s time slice is over, assuming no threads have higher priorities.
 
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
@@ -422,29 +426,32 @@ running is instructed to yield on return from the timer interrupt.
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
 
-Performance is affected by the amount of work done in the interrupt handler.
-If code inside interrupt context bears the greater share of the cost of
-scheduling, then running threads will receive less time to run before the
-next timer interrupt arrives. This leads to more scheduling changes since
-running threads are given inflated recent_cpu values that lower their
-priority faster. This promotes fairness, but degrades performance since less
-time is allotted to running thread code.
+Performance is affected by the added amount of work done in the interrupt
+handler. Since code inside the interrupt context bears a greater share of
+the cost of scheduling now, threads will receive less overall time to run.
+They still receive the same amount of running time per time slice in ticks
+but a greater portion of absolute running time in seconds is dedicated to
+scheduling (i.e. over a 1 second time period, a thread would likely run for
+less now time due to more of that 1 second being used up by scheduling code).
+More scheduling changes promotes fairness but degrades performance since
+less time is alotted to running thread code.
 
 ---- RATIONALE ----
 
 >> C5: Briefly critique your design, pointing out advantages and
->> disadvantages in your design choices.  If you were to have extra
+>> disadvantages in your design choices. If you were to have extra
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
 Advantages:
-The ready_queue implementation can fully replace the ready_list
+- The ready_queue implementation can fully replace the ready_list
 of the priority scheduler, simplifying data structure overhead.
-Because a separate queue is maintained for each priority value,
-insertion is O(1) vs. O(n) for one list that contains all ready threads.
+- Because a separate queue is maintained for each priority value,
+insertion and deletion is O(1) vs. O(n) for one list that contains
+all ready threads.
 
 Disadvantages:
-Recalculating the priority value of each thread every fourth timer tick
+- Recalculating the priority value of each thread every fourth timer tick
 is inefficient vs. just recalculating priorities for threads in which
 recent_cpu has changed, although the code is cleaner and easier
 to understand.
