@@ -47,7 +47,8 @@ ready_queue_remove (struct ready_queue *q, struct thread *t)
   q->num_elems--;
 }
 
-/* Returns highest available thread in ready queue. Throws if ready queue empty. */
+/* Returns highest available thread in ready queue. Throws 
+   if ready queue empty. */
 struct thread *
 ready_queue_front (struct ready_queue *q)
 {
@@ -65,6 +66,8 @@ ready_queue_front (struct ready_queue *q)
   NOT_REACHED ();
 }
 
+/* Removes and returns highest available thread in ready queue. 
+   Throws if ready queue empty. */
 struct thread *
 ready_queue_pop_front (struct ready_queue *q)
 {

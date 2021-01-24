@@ -402,18 +402,17 @@ thread_set_priority (int new_priority)
   if (thread_mlfqs)
     return;
 
-  enum intr_level old_level = intr_get_level ();
-
   struct thread *t = thread_current ();
   t->owned_priority = new_priority;
-  if (t->num_donations == 0 || new_priority > t->curr_priority)
-  {
-    intr_disable ();
-    t->curr_priority = new_priority;
-  }
 
-  thread_check_preempt ();
+  /* Disable interrupts to avoid race condition where you're interrupted, 
+     receive donation, then continue with operation and overwrite donation. */
+  enum intr_level old_level = intr_disable ();
+  if (t->num_donations == 0 || new_priority > t->curr_priority)
+    t->curr_priority = new_priority;
+    
   intr_set_level (old_level);
+  thread_check_preempt ();
 }
 
 /* Resets `ready` thread's curr_priority and readds it to the ready queue.
@@ -452,12 +451,12 @@ mlfqs_tick (int64_t ticks)
   {
     calc_load_avg ();
     fixed32_t coeff = load_avg_coeff ();
-    thread_foreach(calc_recent_cpu, &coeff);
+    thread_foreach (calc_recent_cpu, &coeff);
   }
 
   /* Update priority of each thread once every fourth tick. */
   if (ticks % TIME_SLICE == 0)
-    thread_foreach(calc_priority, NULL);
+    thread_foreach (calc_priority, NULL);
 }
 
 
@@ -516,7 +515,7 @@ increment_recent_cpu (void)
 {
   struct thread *cur = thread_current ();
   if (cur != idle_thread)
-    cur->recent_cpu = add_fixed_int(cur->recent_cpu, 1);
+    cur->recent_cpu = add_fixed_int (cur->recent_cpu, 1);
 }
 
 /* Returns (2*load_avg)/(2*load_avg + 1), used by calc_recent_cpu. */
@@ -533,8 +532,8 @@ load_avg_coeff (void)
 void
 calc_recent_cpu (struct thread *t, void *aux)
 {
-  fixed32_t term_1 = mul_fixed_fixed(*((fixed32_t *) aux), t->recent_cpu);
-  t->recent_cpu = add_fixed_int(term_1, t->nice);
+  fixed32_t term_1 = mul_fixed_fixed (*((fixed32_t *) aux), t->recent_cpu);
+  t->recent_cpu = add_fixed_int (term_1, t->nice);
 }
 
 /* Recalculates priority of a thread T according to the formula:
