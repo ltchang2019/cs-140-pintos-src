@@ -501,10 +501,10 @@ setup_stack (void **esp, char *cmd_name)
             }
 
           /* Round stack pointer down to multiple of 4. */
-          int word_align = PTR_SIZE - (cmd_len % PTR_SIZE);
+          int word_align = (PTR_SIZE - cmd_len) % PTR_SIZE;
           for (int i = 0; i < word_align; i++, (*esp)--) 
               *((uint8_t *)*esp) = 0;
-          (*esp) -= PTR_SIZE - word_align;
+          (*esp) -= PTR_SIZE - 1;
 
           /* Push null pointer sentinel to ensure that argv[argc]
              is a null pointer, as required by the C standard. */
