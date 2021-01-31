@@ -18,50 +18,66 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+/* Size of pointer in bytes. */
+#define PTR_SIZE sizeof(uintptr_t)
 
-/* Starts a new thread running a user program loaded from
-   FILENAME.  The new thread may be scheduled (and may even exit)
-   before process_execute() returns.  Returns the new process's
-   thread id, or TID_ERROR if the thread cannot be created. */
+/* Limit on size of individual command-line argument. */
+#define ARGSIZE_MAX 128
+
+static thread_func start_process NO_RETURN;
+static bool load (const char *file_name, char *cmd_name,
+                  void (**eip) (void), void **esp);
+
+/* Starts a new thread running a user program loaded from the 
+   file that is the first argument in CMDLINE. The new thread
+   may be scheduled (and may even exit) before process_execute()
+   returns.  Returns the new process's thread id, or TID_ERROR
+   if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *cmd) 
 {
-  char *fn_copy;
+  char *cmd_copy;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
-     Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  /* Make a copy of CMD. Otherwise there's a race between the
+     caller and load(). */
+  cmd_copy = palloc_get_page (0);
+  if (cmd_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (cmd_copy, cmd, PGSIZE);
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  /* Create a new thread to execute CMD. */
+  tid = thread_create (cmd, PRI_DEFAULT, start_process, cmd_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+      palloc_free_page (cmd_copy); 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *cmd_name_)
 {
-  char *file_name = file_name_;
+  char *cmd_name = cmd_name_;
   struct intr_frame if_;
   bool success;
+
+  /* Make a copy of the name of the executable. */
+  char *file_name;
+  char *save_ptr;
+  file_name = palloc_get_page (0);
+  strlcpy (file_name, (char *)cmd_name, PGSIZE);
+  strtok_r (file_name, " ", &save_ptr);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (file_name, cmd_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
+  palloc_free_page (cmd_name);
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
@@ -88,6 +104,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  /* Temporarily changed to infinite loop for testing. */
+  while (true) {}
   return -1;
 }
 
@@ -195,18 +213,19 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char *cmd_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
+   Sets up arguments on the stack using CMD_NAME.
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *file_name, char *cmd_name, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -302,7 +321,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, cmd_name))
     goto done;
 
   /* Start address. */
@@ -424,23 +443,100 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
-/* Create a minimal stack by mapping a zeroed page at the top of
-   user virtual memory. */
+/* Create a stack by mapping a zeroed page at the top of user
+   virtual memory and placing arguments on the stack according
+   to the 80x86 calling convention. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char *cmd_name) 
 {
   uint8_t *kpage;
   bool success = false;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  if (kpage != NULL)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        {
+          char *arg;
+          char *save_ptr;
+          int cmd_len = 0;
+          int argc = 0;
+
+          /* Replace whitespace between arguments in CMD_NAME with
+          the null terminator. Obtain length of CMD_NAME and 
+          number of arguments (including the executable). */
+          for (arg = strtok_r (cmd_name, " ", &save_ptr); arg != NULL;
+               arg = strtok_r (NULL, " ", &save_ptr), argc++)
+              cmd_len += strlen (arg) + 1;
+
+          *esp = PHYS_BASE - 1;
+          int arg_len[argc];
+          int index = 0;
+          int len = 0;
+
+          /* Push argument bytes onto stack in reverse order and get
+             length of each argument (including null terminator). */
+          for (char *cmd_char = cmd_name + cmd_len - 1;
+               cmd_char != cmd_name - 1; (*esp)--)
+            {
+              *((uint8_t *)*esp) = *cmd_char--;
+              len++;
+              if (*cmd_char == 0 && cmd_char != cmd_name - 1)
+                {
+                  arg_len[index++] = len;
+                  len = 0;
+                }
+            }
+          arg_len[index] = len;
+
+          /* Verify each argument is less than 128 bytes, which is the
+             limit on what the pintos utility can pass to the kernel. */
+          for (int argnum = 0; argnum < argc; argnum++)
+            {
+              if (arg_len[argnum] > ARGSIZE_MAX) {
+                palloc_free_page (kpage);
+                return false;
+              }
+            }
+
+          /* Round stack pointer down to multiple of 4. */
+          int word_align = PTR_SIZE - (cmd_len % PTR_SIZE);
+          for (int i = 0; i < word_align; i++, (*esp)--) 
+              *((uint8_t *)*esp) = 0;
+          (*esp) -= PTR_SIZE - word_align;
+
+          /* Push null pointer sentinel to ensure that argv[argc]
+             is a null pointer, as required by the C standard. */
+          *((uintptr_t *)*esp) = 0;
+          (*esp) -= PTR_SIZE;
+
+          /* Push address of each argument string. */
+          void *start = PHYS_BASE;
+          for (int argnum = 0; argnum < argc; argnum++) 
+            {
+              *((uintptr_t *)*esp) = (uintptr_t)(start - arg_len[argnum]);
+              (*esp) -= PTR_SIZE;
+              start -= arg_len[argnum];
+            }
+
+          /* Push argv (address of argv[0]), argc, and a "return address",
+             in that order, to complete the stack. */
+          *((uintptr_t *)*esp) = (uintptr_t)(*esp + PTR_SIZE);
+          (*esp) -= PTR_SIZE;
+          *((uintptr_t *)*esp) = argc;
+          (*esp) -= PTR_SIZE;
+          *((uintptr_t *)*esp) = 0;
+        }
       else
         palloc_free_page (kpage);
     }
+
+  /* For debugging argument passing code. */
+  /* TODO: REMOVE WHEN ALL TESTS PASSING. */
+  // size_t size = PHYS_BASE - *esp;
+  // hex_dump ((uint32_t)(PHYS_BASE - size), *esp, size, true);
+
   return success;
 }
 
