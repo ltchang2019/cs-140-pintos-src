@@ -135,7 +135,6 @@ the blocked state). Introducing the concept of sleeping to the overall thread
 implementation would have introduced weakly-linked information and extra
 complexity, therefore we elected to use a separate sleeping_thread struct.
 
-
 			 PRIORITY SCHEDULING
 			 ===================
 
@@ -344,7 +343,6 @@ the performance tradeoff is negligible, and we decided to go with the former
 design for consistency with the rest of the code (i.e., other lists, whether
 of ready threads or sleeping threads, are also sorted).
 
-
 			  ADVANCED SCHEDULER
 			  ==================
 
@@ -391,7 +389,7 @@ fixed32_t recent_cpu; /* A measure of “recently” received CPU time. */
 >> thread after each given number of timer ticks:
 
 Assumptions on the calculations:
-	1. Load_avg is 0 for the duration of 0 to 36 timer ticks.
+	1. System load_avg is 0 for the duration of 0 to 36 timer ticks.
 	2. At no point does timer_ticks % TIMER_FREQ == 0
 	   (i.e., recent_cpu and load_avg do not undergo batch updates).
    	3. A running thread yields to a ready thread of equal priority when
@@ -426,15 +424,15 @@ running is instructed to yield on return from the timer interrupt.
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
 
-Performance is affected by the added amount of work done in the interrupt
+Performance is affected by the amount of additional work done in the interrupt
 handler. Since code inside the interrupt context bears a greater share of
 the cost of scheduling now, threads will receive less overall time to run.
 They still receive the same amount of running time per time slice in ticks
-but a greater portion of absolute running time in seconds is dedicated to
-scheduling (i.e. over a 1 second time period, a thread would likely run for
-less now time due to more of that 1 second being used up by scheduling code).
-More scheduling changes promotes fairness but degrades performance since
-less time is alotted to running thread code.
+but a greater proportion of absolute running time in seconds is dedicated to
+scheduling (i.e., over a 1 second time period, a thread will likely run for
+less now time due to more of that 1 second being used up by the scheduling
+code). More scheduling changes promotes fairness but degrades performance 
+since less time is allotted to running actual thread code.
 
 ---- RATIONALE ----
 
@@ -529,4 +527,8 @@ a good deal of confusion.
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
 
+N/A
+
 >> Any other comments?
+
+N/A

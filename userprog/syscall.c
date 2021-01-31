@@ -67,14 +67,14 @@ static void
 check_usr_ptr (const void *usr_ptr)
 {
   if (usr_ptr == NULL) 
-    syscall_exit(-1);
+    syscall_exit (-1);
 
-  if (!is_user_vaddr(usr_ptr))
-    syscall_exit(-1);
+  if (!is_user_vaddr (usr_ptr))
+    syscall_exit (-1);
   
   uint32_t *pd = thread_current ()->pagedir;
   if (pagedir_get_page (pd, usr_ptr) == NULL)
-    syscall_exit(-1);
+    syscall_exit (-1);
 }
 
 // TODO

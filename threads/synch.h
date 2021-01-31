@@ -20,7 +20,7 @@ struct thread_sema_pair
   {
 
     struct semaphore semaphore;         /* This semaphore. */
-    struct thread *waiting_thread;              /* Waiting thread. */
+    struct thread *waiting_thread;      /* Waiting thread. */
     struct list_elem elem;              /* List element. */
   };
 
