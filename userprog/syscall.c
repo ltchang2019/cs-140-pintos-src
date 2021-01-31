@@ -7,8 +7,9 @@
 #include "threads/vaddr.h"
 
 static void syscall_handler (struct intr_frame *);
-static void check_user_ptr (const void *usr_ptr);
+static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
 static void exit (int status);
+static uint32_t read_frame (struct intr_frame *, int offset); // keep in interrupt.c and import err lib to check?
 
 void
 syscall_init (void) 
@@ -17,14 +18,33 @@ syscall_init (void)
 }
 
 static void
-syscall_handler (struct intr_frame *f UNUSED) 
+syscall_handler (struct intr_frame *f) 
 {
-  printf ("system call!\n");
-  thread_exit ();
+  int syscall_num = (int)read_frame (f, 0);
+  switch (syscall_num) {
+    case SYS_HALT:
+    case SYS_EXIT:
+    case SYS_EXEC:
+    case SYS_WAIT:
+    case SYS_CREATE:
+    case SYS_REMOVE:
+    case SYS_OPEN:
+    case SYS_FILESIZE:
+    case SYS_READ:
+    case SYS_WRITE:
+    case SYS_SEEK:
+    case SYS_TELL:
+    case SYS_CLOSE:
+      break;
+  }
+  break;
 }
 
+/* Validates user pointer. Checks that pointer is not NULL,
+   is a valid user vaddr, and is mapped to physical memory.
+   Exits and terminates process if checks fail. */
 static void 
-check_user_ptr (const void *usr_ptr)
+check_usr_ptr (const void *usr_ptr)
 {
   if (usr_ptr == NULL) 
     exit(-1);
@@ -37,7 +57,19 @@ check_user_ptr (const void *usr_ptr)
     exit(-1);
 }
 
+// TODO
 static void 
-exit (int status)
+exit (int status UNUSED)
 {
+  thread_exit ();
+}
+
+/* Checks address at intr_frame->esp + offset and returns
+   value as uint32_t if valid. User must cast value to desired type. */
+static uint32_t
+read_frame (struct intr_frame *f, int offset)
+{
+  void *addr = f->esp + offset;
+  check_usr_ptr (addr);
+  return *(uint32_t *)addr;
 }
