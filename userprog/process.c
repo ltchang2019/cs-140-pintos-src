@@ -22,15 +22,15 @@
 #define PTR_SIZE sizeof(uintptr_t)
 
 /* Limit on size of individual command-line argument. */
-#define ARGSIZE_MAX 128
+#define ARGLEN_MAX 128
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *file_name, char *cmd_name,
                   void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from the 
-   file that is the first argument in CMDLINE. The new thread
-   may be scheduled (and may even exit) before process_execute()
+   file that is the first argument in CMD. The new thread may
+   be scheduled (and may even exit) before process_execute()
    returns.  Returns the new process's thread id, or TID_ERROR
    if the thread cannot be created. */
 tid_t
@@ -46,8 +46,23 @@ process_execute (const char *cmd)
     return TID_ERROR;
   strlcpy (cmd_copy, cmd, PGSIZE);
 
+  /* Obtain the name of the file (i.e., first arugment in CMD).
+     This will become the name of the new thread. */
+  char *cmd_args;
+  char *file_name;
+  char *save_ptr;
+  cmd_args = palloc_get_page (0);
+  if (cmd_args == NULL)
+    {
+      palloc_free_page (cmd_copy);
+      return TID_ERROR;
+    }
+  strlcpy (cmd_args, cmd, PGSIZE);
+  file_name = strtok_r(cmd_args, " ", &save_ptr);
+
   /* Create a new thread to execute CMD. */
-  tid = thread_create (cmd, PRI_DEFAULT, start_process, cmd_copy);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, cmd_copy);
+  palloc_free_page (cmd_args);
   if (tid == TID_ERROR)
       palloc_free_page (cmd_copy); 
   return tid;
@@ -63,11 +78,12 @@ start_process (void *cmd_name_)
   bool success;
 
   /* Make a copy of the name of the executable. */
+  char *cmd_copy;
   char *file_name;
   char *save_ptr;
-  file_name = palloc_get_page (0);
-  strlcpy (file_name, (char *)cmd_name, PGSIZE);
-  strtok_r (file_name, " ", &save_ptr);
+  cmd_copy = palloc_get_page (0);
+  strlcpy (cmd_copy, (char *)cmd_name, PGSIZE);
+  file_name = strtok_r (cmd_copy, " ", &save_ptr);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -78,7 +94,7 @@ start_process (void *cmd_name_)
 
   /* If load failed, quit. */
   palloc_free_page (cmd_name);
-  palloc_free_page (file_name);
+  palloc_free_page (cmd_copy);
   if (!success) 
     thread_exit ();
 
@@ -458,17 +474,29 @@ setup_stack (void **esp, char *cmd_name)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         {
+          char *cmd_args;
           char *arg;
           char *save_ptr;
-          int cmd_len = 0;
           int argc = 0;
+          int cmd_args_len = 0;
 
-          /* Replace whitespace between arguments in CMD_NAME with
-          the null terminator. Obtain length of CMD_NAME and 
-          number of arguments (including the executable). */
+          /* Process CMD_NAME into arguments separated by single
+             null terminators (as opposed to arbitrary whitespace)
+             and store in CMD_ARGS. Obtain length of CMD_ARGS and
+             number of arguments (including the executable itself). */
+          cmd_args = palloc_get_page (0);
+          if (cmd_args == NULL) 
+            {
+              palloc_free_page (kpage);
+              return false;
+            }
           for (arg = strtok_r (cmd_name, " ", &save_ptr); arg != NULL;
                arg = strtok_r (NULL, " ", &save_ptr), argc++)
-              cmd_len += strlen (arg) + 1;
+            {
+              int next_arg_len = strlen (arg) + 1;
+              strlcpy (cmd_args + cmd_args_len, arg, next_arg_len);
+              cmd_args_len += next_arg_len;
+            }
 
           *esp = PHYS_BASE - 1;
           int arg_len[argc];
@@ -477,8 +505,8 @@ setup_stack (void **esp, char *cmd_name)
 
           /* Push argument bytes onto stack in reverse order and get
              length of each argument (including null terminator). */
-          for (char *cmd_char = cmd_name + cmd_len - 1;
-               cmd_char != cmd_name - 1; (*esp)--)
+          for (char *cmd_char = cmd_args + cmd_args_len - 1;
+               cmd_char != cmd_args - 1; (*esp)--)
             {
               *((uint8_t *)*esp) = *cmd_char--;
               len++;
@@ -489,19 +517,20 @@ setup_stack (void **esp, char *cmd_name)
                 }
             }
           arg_len[index] = len;
+          palloc_free_page (cmd_args);
 
           /* Verify each argument is less than 128 bytes, which is the
              limit on what the pintos utility can pass to the kernel. */
           for (int argnum = 0; argnum < argc; argnum++)
             {
-              if (arg_len[argnum] > ARGSIZE_MAX) {
+              if (arg_len[argnum] > ARGLEN_MAX) {
                 palloc_free_page (kpage);
                 return false;
               }
             }
 
           /* Round stack pointer down to multiple of 4. */
-          int word_align = (PTR_SIZE - cmd_len) % PTR_SIZE;
+          int word_align = (PTR_SIZE - cmd_args_len) % PTR_SIZE;
           for (int i = 0; i < word_align; i++, (*esp)--) 
               *((uint8_t *)*esp) = 0;
           (*esp) -= PTR_SIZE - 1;

@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#include "devices/shutdown.h"
 #include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -35,6 +36,8 @@ syscall_handler (struct intr_frame *f)
   switch (syscall_num) {
     case SYS_HALT:
     case SYS_EXIT:
+      shutdown_power_off ();
+      break;
     case SYS_EXEC:
     case SYS_WAIT:
     case SYS_CREATE:
