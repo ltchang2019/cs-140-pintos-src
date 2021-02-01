@@ -666,6 +666,11 @@ init_thread (struct thread *t, const char *name, int priority,
   list_init (&t->held_locks);
   t->magic = THREAD_MAGIC;
 
+  #ifdef USERPROG
+    t->fd_counter = 2;         /* 0 and 1 reserved for stdin and stdout. */
+    list_init (&t->fd_list);   /* List of open file descriptors. */
+  #endif
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

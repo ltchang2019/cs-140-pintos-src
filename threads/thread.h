@@ -19,7 +19,7 @@ enum thread_status
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
-#define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
+#define TID_ERROR ((tid_t) - 1)         /* Error value for tid_t. */
 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
@@ -108,10 +108,22 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    /* Owned by userprog/syscall.c. */
+    int fd_counter;                     /* Counter for file descriptors. */
+    struct list fd_list;                /* List of open file descriptors. */
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+  };
+
+/* File descriptor entry. Contains the file descriptor and
+   a pointer to its associated file struct. */
+struct fd_entry
+  {
+     int fd;
+     struct file *file;
+     struct list_elem elem;
   };
 
 /* If false (default), use round-robin scheduler.
