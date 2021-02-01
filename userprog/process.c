@@ -27,6 +27,26 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *file_name, char *cmd_name,
                   void (**eip) (void), void **esp);
+static struct p_info * child_p_info_by_tid (tid_t tid);
+
+/* Searches through current thread's child_p_info_list for
+   process info struct with matching tid. Returns struct if found
+   and NULL if otherwise. */
+static struct p_info *
+child_p_info_by_tid (tid_t tid)
+{
+  struct thread *t = thread_current ();
+  struct list_elem *curr = list_begin (&t->child_p_info_list);
+  struct list_elem *end = list_end (&t->child_p_info_list);
+  while (curr != end)
+    {
+      struct p_info *p_info = list_entry (curr, struct p_info, elem);
+      if (p_info->tid == tid) 
+        return p_info;
+      curr = list_next (curr);
+    }
+  return NULL;
+}
 
 /* Starts a new thread running a user program loaded from the 
    file that is the first argument in CMDLINE. The new thread
@@ -48,6 +68,12 @@ process_execute (const char *cmd)
 
   /* Create a new thread to execute CMD. */
   tid = thread_create (cmd, PRI_DEFAULT, start_process, cmd_copy);
+
+  /* Block on child's p_info semaphore until child has confirmed
+     successful load in its call to start_process. Return -1 if failed load. */
+  struct p_info *child_p_info = child_p_info_by_tid (tid);
+  sema_down (child_p_info->sema);
+
   if (tid == TID_ERROR)
       palloc_free_page (cmd_copy); 
   return tid;
@@ -75,6 +101,10 @@ start_process (void *cmd_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, cmd_name, &if_.eip, &if_.esp);
+
+  /* If load was successful, up semaphore to notify parent. */
+  if (success)
+    sema_up (thread_current ()->p_info->sema);
 
   /* If load failed, quit. */
   palloc_free_page (cmd_name);

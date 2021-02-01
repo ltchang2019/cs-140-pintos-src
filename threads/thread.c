@@ -670,18 +670,18 @@ init_thread (struct thread *t, const char *name, int priority,
   t->magic = THREAD_MAGIC;
 
   #ifdef USERPROG
-    struct process_info *p_info = malloc (sizeof(struct process_info));
+    struct p_info *p_info = malloc (sizeof(struct p_info));
     struct semaphore *sema = malloc (sizeof(struct semaphore));
-    sema_init (sema);
+    sema_init (sema, 0);
 
-    p_info->parent_pid = t->tid;
+    p_info->tid = t->tid;
     p_info->exit_status = 0;
     p_info->already_waited = false;
     p_info->sema = sema;
     p_info->load_suceeded = false;
 
     t->p_info = p_info;
-    list_insert (&thread_current ()->child_process_info_list, p_info->elem);
+    list_push_back (&thread_current ()->child_p_info_list, &p_info->elem);
   #endif
 
   old_level = intr_disable ();

@@ -26,8 +26,6 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-typedef tid_t pid_t;
-
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -109,8 +107,8 @@ struct thread
     struct list_elem elem;              /* List element. */
 
     /* Project 2 Additions */
-    struct process_info *p_info;
-    struct list child_process_info_list;
+    struct p_info *p_info;
+    struct list child_p_info_list;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -121,10 +119,11 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
   };
 
-/* Struct containing necessary parent-child process info. */
-struct process_info
+/* Process info struct. Containing necessary parent-child 
+   process info. */
+struct p_info
  {
-    pid_t parent_pid;
+    tid_t tid;
     int exit_status;
     bool already_waited;
     struct semaphore *sema;
