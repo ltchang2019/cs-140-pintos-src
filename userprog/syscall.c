@@ -10,11 +10,14 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+typedef tid_t pid_t;
+
 struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
 
 static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
+static pid_t syscall_exec (const char *cmd_line);
 static void syscall_exit (int status);
 static int syscall_wait (tid_t tid);
 static int syscall_write (int fd, const void *buf, unsigned size);
@@ -40,6 +43,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_EXIT:
       break;
     case SYS_EXEC:
+
       break;
     case SYS_WAIT:
       break;
@@ -67,7 +71,7 @@ syscall_handler (struct intr_frame *f)
 /* Checks address at intr_frame->esp + offset and returns
    value as uint32_t if valid. User must cast value to desired type. */
 static uint32_t
-read_frame (struct intr_frame *f, int offset)
+read_frame (struct intr_frame *f, int byte_offset)
 {
   void *addr = f->esp + offset;
   check_usr_ptr (addr);
@@ -105,6 +109,13 @@ check_usr_ptr (const void *usr_ptr)
   uint32_t *pd = thread_current ()->pagedir;
   if (pagedir_get_page (pd, usr_ptr) == NULL)
     syscall_exit (-1);
+}
+
+static pid_t
+syscall_exec (const char *cmd_line)
+{
+  pid_t pid = process_execute (cmd_line);
+  return pid;
 }
 
 /* Set's p_info exit_status to status and ups semaphore if 
