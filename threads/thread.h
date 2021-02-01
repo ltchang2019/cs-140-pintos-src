@@ -118,17 +118,20 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
   };
 
+#ifdef USERPROG
 /* Process info struct. Containing necessary parent-child 
    process info. */
 struct p_info
  {
     tid_t tid;
     int exit_status;
-    bool already_waited;
     struct semaphore *sema;
     bool load_succeeded;
     struct list_elem elem;
  };
+
+struct p_info *child_p_info_by_tid (tid_t);
+#endif
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

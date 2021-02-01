@@ -27,26 +27,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *file_name, char *cmd_name,
                   void (**eip) (void), void **esp);
-static struct p_info * child_p_info_by_tid (tid_t tid);
-
-/* Searches through current thread's child_p_info_list for
-   process info struct with matching tid. Returns struct if found
-   and NULL if otherwise. */
-static struct p_info *
-child_p_info_by_tid (tid_t tid)
-{
-  struct thread *t = thread_current ();
-  struct list_elem *curr = list_begin (&t->child_p_info_list);
-  struct list_elem *end = list_end (&t->child_p_info_list);
-  while (curr != end)
-    {
-      struct p_info *p_info = list_entry (curr, struct p_info, elem);
-      if (p_info->tid == tid) 
-        return p_info;
-      curr = list_next (curr);
-    }
-  return NULL;
-}
 
 /* Starts a new thread running a user program loaded from the 
    file that is the first argument in CMDLINE. The new thread

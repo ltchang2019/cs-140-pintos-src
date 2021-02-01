@@ -97,6 +97,25 @@ cmp_priority (const struct list_elem *a, const struct list_elem *b,
   return a_pri > b_pri;
 }
 
+/* Searches through current thread's child_p_info_list for
+   process info struct with matching tid. Returns struct if found
+   and NULL if otherwise. */
+struct p_info *
+child_p_info_by_tid (tid_t tid)
+{
+  struct thread *t = thread_current ();
+  struct list_elem *curr = list_begin (&t->child_p_info_list);
+  struct list_elem *end = list_end (&t->child_p_info_list);
+  while (curr != end)
+    {
+      struct p_info *p_info = list_entry (curr, struct p_info, elem);
+      if (p_info->tid == tid) 
+        return p_info;
+      curr = list_next (curr);
+    }
+  return NULL;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -676,7 +695,6 @@ init_thread (struct thread *t, const char *name, int priority,
 
     p_info->tid = t->tid;
     p_info->exit_status = 0;
-    p_info->already_waited = false;
     p_info->sema = sema;
     p_info->load_succeeded = false;
 

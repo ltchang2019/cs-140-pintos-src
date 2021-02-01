@@ -107,6 +107,9 @@ check_usr_ptr (const void *usr_ptr)
     syscall_exit (-1);
 }
 
+/* Set's p_info exit_status to status and ups semaphore if 
+   parent still running (i.e. p_info not NULL). Frees all child
+   p_info structs and prints process termination message. */
 static void 
 syscall_exit (int status)
 {
@@ -126,12 +129,28 @@ syscall_exit (int status)
   thread_exit ();
 }
 
-// TODO
+/* Tries to get child p_info, down semaphore, and get/return exit status. 
+   Returns -1 if no child with given tid or if already waited on child. */
 static int
 syscall_wait (tid_t tid)
 {
-  while (true) {}
-  return 0;
+  struct p_info *child_p_info = child_p_info_by_tid (tid);
+
+  /* Already waited on child and freed struct. */
+  if (child_p_info == NULL) 
+    return -1;
+  
+  /* Down child's semaphore. Once unblocked, free p_info
+     struct and return exit status. If this process tries to
+     wait on same tid again, it will hit p_info == NULL and 
+     return -1 as intended. */
+  sema_down (child_p_info->sema);
+
+  int exit_status = child_p_info->exit_status;
+  list_remove (&child_p_info->elem);
+  free (child_p_info);
+  
+  return exit_status;
 }
 
 // TODO
