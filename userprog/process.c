@@ -73,6 +73,8 @@ process_execute (const char *cmd)
      successful load in its call to start_process. Return -1 if failed load. */
   struct p_info *child_p_info = child_p_info_by_tid (tid);
   sema_down (child_p_info->sema);
+  if (child_p_info->load_succeeded == false)
+    return -1;
 
   if (tid == TID_ERROR)
       palloc_free_page (cmd_copy); 
@@ -104,7 +106,11 @@ start_process (void *cmd_name_)
 
   /* If load was successful, up semaphore to notify parent. */
   if (success)
+  {
+    thread_current ()->p_info->load_succeeded = true;
     sema_up (thread_current ()->p_info->sema);
+  }
+    
 
   /* If load failed, quit. */
   palloc_free_page (cmd_name);
@@ -143,12 +149,12 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit (void)
 {
-  struct thread *cur = thread_current ();
+  struct thread *t = thread_current ();
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  pd = cur->pagedir;
+  pd = t->pagedir;
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
@@ -158,7 +164,7 @@ process_exit (void)
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
-      cur->pagedir = NULL;
+      t->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }

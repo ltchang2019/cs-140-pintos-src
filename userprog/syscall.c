@@ -6,20 +6,22 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "threads/malloc.h"
 #include <stdio.h>
 #include <syscall-nr.h>
-
-typedef tid_t pid_t;
 
 struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
+
 static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
 static void syscall_exit (int status);
+static int syscall_wait (tid_t tid);
 static int syscall_write (int fd, const void *buf, unsigned size);
 
 // keep in interrupt.c and import err lib to check?
 static uint32_t read_frame (struct intr_frame *, int offset);
+static void free_child_p_info_list (void);
 
 void
 syscall_init (void) 
@@ -72,6 +74,20 @@ read_frame (struct intr_frame *f, int offset)
   return *(uint32_t *)addr;
 }
 
+static void
+free_child_p_info_list (void)
+{
+  struct thread *t = thread_current ();
+  struct list_elem *curr = list_begin (&t->child_p_info_list);
+  struct list_elem *end = list_end (&t->child_p_info_list);
+  while (curr != end)
+    {
+      struct p_info *p_info = list_entry (curr, struct p_info, elem);
+      free ((void *) p_info);
+      curr = list_next (curr);
+    }
+}
+
 /* Validates user pointer. Checks that pointer is not NULL,
    is a valid user vaddr, and is mapped to physical memory.
    Exits and terminates process if checks fail. */
@@ -89,16 +105,24 @@ check_usr_ptr (const void *usr_ptr)
     syscall_exit (-1);
 }
 
-// TODO
 static void 
-syscall_exit (int status UNUSED)
+syscall_exit (int status)
 {
+  struct thread *t = thread_current ();
+
+  /* If parent still running, set exit status and 
+     signal to parent with sema_up. */
+  if (t->p_info != NULL)
+    t->p_info->exit_status = status;
+  
+  free_child_p_info_list ();
+  printf ("%s: exit(%d)\n", t->name, status);
   thread_exit ();
 }
 
 // TODO
 static int
-syscall_wait (pid_t pid UNUSED)
+syscall_wait (tid_t tid)
 {
   while (true) {}
   return 0;

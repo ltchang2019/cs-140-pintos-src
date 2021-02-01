@@ -106,12 +106,11 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    /* Project 2 Additions */
+
+/* Project 2 Additions */    
+#ifdef USERPROG
     struct p_info *p_info;
     struct list child_p_info_list;
-
-#ifdef USERPROG
-    /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
@@ -127,7 +126,7 @@ struct p_info
     int exit_status;
     bool already_waited;
     struct semaphore *sema;
-    bool load_suceeded;
+    bool load_succeeded;
     struct list_elem elem;
  };
 
