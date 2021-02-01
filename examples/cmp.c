@@ -63,6 +63,6 @@ main (int argc, char *argv[])
     }
 
   printf ("%s and %s are identical\n", argv[1], argv[2]);
-
+  
   return EXIT_SUCCESS;
 }

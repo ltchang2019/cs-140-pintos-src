@@ -546,8 +546,8 @@ setup_stack (void **esp)
 
   /* For debugging argument passing code. */
   /* TODO: REMOVE WHEN ALL TESTS PASSING. */
-   size_t size = PHYS_BASE - *esp;
-   hex_dump ((uint32_t)(PHYS_BASE - size), *esp, size, true);
+  // size_t size = PHYS_BASE - *esp;
+  // hex_dump ((uint32_t)(PHYS_BASE - size), *esp, size, true);
 
   return success;
 }

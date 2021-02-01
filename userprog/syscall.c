@@ -33,6 +33,7 @@ static void syscall_close (int fd);
 
 // keep in interrupt.c and import err lib to check?
 static uint32_t read_frame (struct intr_frame *, int offset);
+static void write_frame (struct intr_frame *, uint32_t ret_value);
 static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
 
 static struct file *fd_to_file (int fd);
@@ -63,25 +64,29 @@ syscall_handler (struct intr_frame *f)
       {
         const char *file = (const char *)read_frame (f, 4);
         unsigned initial_size = (unsigned)read_frame (f, 8);
-        syscall_create (file, initial_size);
+        bool create_succeeded = syscall_create (file, initial_size);
+        write_frame (f, create_succeeded);
         break;
       }
     case SYS_REMOVE:
       {
         const char *file = (const char *)read_frame (f, 4);
-        syscall_remove (file);
+        bool remove_succeeded = syscall_remove (file);
+        write_frame (f, remove_succeeded);
         break;
       }
     case SYS_OPEN:
       {
         const char *file = (const char *)read_frame (f, 4);
-        syscall_open (file);
+        int fd = syscall_open (file);
+        write_frame (f, fd);
         break;
       }
     case SYS_FILESIZE:
       {
         int fd = (int)read_frame (f, 4);
-        syscall_filesize (fd);
+        int filesize = syscall_filesize (fd);
+        write_frame (f, filesize);
         break;
       }
     case SYS_READ:
@@ -89,7 +94,8 @@ syscall_handler (struct intr_frame *f)
         int fd = (int)read_frame (f, 4);
         void *buf = (void *)read_frame (f, 8);
         unsigned size = (unsigned)read_frame (f, 12);
-        syscall_read (fd, buf, size);
+        int bytes_read = syscall_read (fd, buf, size);
+        write_frame (f, bytes_read);
         break;
       }
     case SYS_WRITE:
@@ -97,7 +103,8 @@ syscall_handler (struct intr_frame *f)
         int fd = (int)read_frame (f, 4);
         const void *buf = (const void *)read_frame (f, 8);
         unsigned size = (unsigned)read_frame (f, 12);
-        syscall_write (fd, buf, size);
+        int bytes_written = syscall_write (fd, buf, size);
+        write_frame (f, bytes_written);
         break;
       }
     case SYS_SEEK:
@@ -110,7 +117,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_TELL:
       {
         int fd = (int)read_frame (f, 4);
-        syscall_tell (fd);
+        unsigned position = syscall_tell (fd);
+        write_frame (f, position);
         break;
       }
     case SYS_CLOSE:
@@ -133,6 +141,14 @@ read_frame (struct intr_frame *f, int offset)
   check_usr_ptr (addr);
   return *(uint32_t *)addr;
 }
+
+/* Write return value of system call to intr_frame->eax. */
+static void
+write_frame (struct intr_frame *f, uint32_t ret_value)
+{
+  f->eax = ret_value;
+}
+
 
 /* Validates user pointer. Checks that pointer is not NULL,
    is a valid user vaddr, and is mapped to physical memory.
@@ -179,6 +195,7 @@ fd_to_file (int fd)
 static void 
 syscall_exit (int status UNUSED)
 {
+  fd_close_all ();
   thread_exit ();
 }
 
@@ -254,16 +271,22 @@ syscall_read (int fd, void *buf, unsigned size)
   check_usr_ptr (buf);
   check_usr_ptr (buf + size);
 
-  /* Read from the keyboard. */
+  int bytes_read = 0;
+
+  /* Read from the keyboard up to SIZE characters.
+     Stop reading on a newline character ('\n'). */
   if (fd == STDIN_FILENO)
     {
       char *buf_pos = buf;
-      for (int i = size; i >= 0; i--)
+      for (int i = size; i > 0; i--)
         {
           uint8_t next_c = input_getc ();
+          if (next_c == '\n')
+            break;
           *buf_pos++ = next_c;
+          bytes_read++;
         }
-      return size;
+      return bytes_read;
     }
   
   /* Fail silently if attempt to read from STDOUT_FILENO. */
@@ -274,7 +297,7 @@ syscall_read (int fd, void *buf, unsigned size)
   if (file == NULL)
     return -1;
   lock_acquire (&filesys_lock);
-  int bytes_read = file_read (file, buf, size);
+  bytes_read = file_read (file, buf, size);
   lock_release (&filesys_lock);
   return bytes_read;
 }
@@ -288,6 +311,8 @@ syscall_write (int fd, const void *buf, unsigned size)
 {
   check_usr_ptr (buf);
   check_usr_ptr (buf + size);
+
+  int bytes_written;
 
   /* Write to the console. */
   if (fd == STDOUT_FILENO) 
@@ -304,7 +329,7 @@ syscall_write (int fd, const void *buf, unsigned size)
   if (file == NULL)
     return 0;
   lock_acquire (&filesys_lock);
-  int bytes_written = file_write (file, buf, size);
+  bytes_written = file_write (file, buf, size);
   lock_release (&filesys_lock);
   return bytes_written;
 }
@@ -327,8 +352,9 @@ static unsigned
 syscall_tell (int fd)
 {
   lock_acquire (&filesys_lock);
-  file_tell (fd_to_file (fd));
+  unsigned position = file_tell (fd_to_file (fd));
   lock_release (&filesys_lock);
+  return position;
 }
 
 /* Close file descriptor FD. */
@@ -365,10 +391,9 @@ fd_close_all (void)
   struct thread *t = thread_current ();
 
   /* Remove and deallocate memory of all fd_entry structs in fd_list. */
-  struct list_elem *fd_elem;
-  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
-       fd_elem = list_next (fd_elem))
+  while (!list_empty (&t->fd_list))
     {
+      struct list_elem *fd_elem = list_pop_front (&t->fd_list);
       struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
       file = entry->file;
       lock_acquire (&filesys_lock);
