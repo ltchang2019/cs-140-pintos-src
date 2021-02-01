@@ -23,7 +23,7 @@ static int syscall_wait (tid_t tid);
 static int syscall_write (int fd, const void *buf, unsigned size);
 
 // keep in interrupt.c and import err lib to check?
-static uint32_t read_frame (struct intr_frame *, int offset);
+static uint32_t read_frame (struct intr_frame *, int byte_offset);
 static void free_child_p_info_list (void);
 
 void
@@ -41,12 +41,23 @@ syscall_handler (struct intr_frame *f)
     case SYS_HALT:
       break;
     case SYS_EXIT:
-      break;
+      {
+        int status = (int)read_frame (f, 4);
+        syscall_exit (status);
+        break;
+      }
     case SYS_EXEC:
-
-      break;
+      {
+        const char *cmd_line = (const char *)read_frame (f, 4);
+        syscall_exec (cmd_line);
+        break;
+      }
     case SYS_WAIT:
-      break;
+      {
+        tid_t tid = (tid_t)read_frame (f, 4);
+        syscall_wait (tid);
+        break;
+      }
     case SYS_CREATE:
       break;
     case SYS_REMOVE:
@@ -73,7 +84,7 @@ syscall_handler (struct intr_frame *f)
 static uint32_t
 read_frame (struct intr_frame *f, int byte_offset)
 {
-  void *addr = f->esp + offset;
+  void *addr = f->esp + byte_offset;
   check_usr_ptr (addr);
   return *(uint32_t *)addr;
 }
