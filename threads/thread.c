@@ -12,6 +12,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -211,8 +212,10 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   struct thread *cur = thread_current ();
-  init_thread (t, name, priority, cur->nice, cur->recent_cpu);
+
+  // if USERPROG, allocate_tid must go before init_thread so that p_info can access t->tid
   tid = t->tid = allocate_tid ();
+  init_thread (t, name, priority, cur->nice, cur->recent_cpu);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -665,6 +668,21 @@ init_thread (struct thread *t, const char *name, int priority,
   t->desired_lock = NULL;
   list_init (&t->held_locks);
   t->magic = THREAD_MAGIC;
+
+  #ifdef USERPROG
+    struct process_info *p_info = malloc (sizeof(struct process_info));
+    struct semaphore *sema = malloc (sizeof(struct semaphore));
+    sema_init (sema);
+
+    p_info->parent_pid = t->tid;
+    p_info->exit_status = 0;
+    p_info->already_waited = false;
+    p_info->sema = sema;
+    p_info->load_suceeded = false;
+
+    t->p_info = p_info;
+    list_insert (&thread_current ()->child_process_info_list, p_info->elem);
+  #endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

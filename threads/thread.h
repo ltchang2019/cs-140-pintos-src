@@ -124,11 +124,12 @@ struct thread
 /* Struct containing necessary parent-child process info. */
 struct process_info
  {
-    pid_t parent_id;
+    pid_t parent_pid;
     int exit_status;
     bool already_waited;
-    struct semaphore sema;
+    struct semaphore *sema;
     bool load_suceeded;
+    struct list_elem elem;
  };
 
 /* If false (default), use round-robin scheduler.
