@@ -213,7 +213,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   struct thread *cur = thread_current ();
 
-  // if USERPROG, allocate_tid must go before init_thread so that p_info can access t->tid
+  /* if USERPROG, allocate_tid must go before init_thread so that p_info can access t->tid */
   tid = t->tid = allocate_tid ();
   init_thread (t, name, priority, cur->nice, cur->recent_cpu);
 
@@ -678,7 +678,7 @@ init_thread (struct thread *t, const char *name, int priority,
     p_info->exit_status = 0;
     p_info->already_waited = false;
     p_info->sema = sema;
-    p_info->load_suceeded = false;
+    p_info->load_succeeded = false;
 
     t->p_info = p_info;
     list_push_back (&thread_current ()->child_p_info_list, &p_info->elem);

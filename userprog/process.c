@@ -73,6 +73,8 @@ process_execute (const char *cmd)
      successful load in its call to start_process. Return -1 if failed load. */
   struct p_info *child_p_info = child_p_info_by_tid (tid);
   sema_down (child_p_info->sema);
+  if (child_p_info->load_succeeded == false)
+    return -1;
 
   if (tid == TID_ERROR)
       palloc_free_page (cmd_copy); 
@@ -104,7 +106,11 @@ start_process (void *cmd_name_)
 
   /* If load was successful, up semaphore to notify parent. */
   if (success)
+  {
+    thread_current ()->p_info->load_succeeded = true;
     sema_up (thread_current ()->p_info->sema);
+  }
+    
 
   /* If load failed, quit. */
   palloc_free_page (cmd_name);
