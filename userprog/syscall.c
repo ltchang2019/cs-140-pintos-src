@@ -74,6 +74,8 @@ read_frame (struct intr_frame *f, int offset)
   return *(uint32_t *)addr;
 }
 
+/* Traverse through current thread's child_p_info_list
+   and free all p_info structs. */
 static void
 free_child_p_info_list (void)
 {
@@ -83,7 +85,7 @@ free_child_p_info_list (void)
   while (curr != end)
     {
       struct p_info *p_info = list_entry (curr, struct p_info, elem);
-      free ((void *) p_info);
+      free (p_info);
       curr = list_next (curr);
     }
 }
@@ -113,9 +115,13 @@ syscall_exit (int status)
   /* If parent still running, set exit status and 
      signal to parent with sema_up. */
   if (t->p_info != NULL)
+  {
     t->p_info->exit_status = status;
-  
+    sema_up (t->p_info->sema);
+  }
+    
   free_child_p_info_list ();
+  
   printf ("%s: exit(%d)\n", t->name, status);
   thread_exit ();
 }

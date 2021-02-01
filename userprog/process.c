@@ -104,13 +104,12 @@ start_process (void *cmd_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, cmd_name, &if_.eip, &if_.esp);
 
-  /* If load was successful, up semaphore to notify parent. */
+  /* If load was successful, set load_succeeded to true. */
   if (success)
-  {
     thread_current ()->p_info->load_succeeded = true;
-    sema_up (thread_current ()->p_info->sema);
-  }
-    
+  
+  /* Notify parent that load finished regardless of success/fail. */
+  sema_up (thread_current ()->p_info->sema);
 
   /* If load failed, quit. */
   palloc_free_page (cmd_name);
