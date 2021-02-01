@@ -26,6 +26,8 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+typedef tid_t pid_t;
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -84,7 +86,8 @@ typedef int tid_t;
    blocked state is on a semaphore wait list. */
 struct thread
   {
-    /* Owned by thread.c. */
+
+    /* Project 1 Additions */
     tid_t tid;                        /* Thread identifier. */
     enum thread_status status;        /* Thread state. */
     char name[16];                    /* Name (for debugging purposes). */
@@ -105,6 +108,10 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    /* Project 2 Additions */
+    struct process_info *p_info;
+    struct list child_process_info_list;
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -113,6 +120,16 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+/* Struct containing necessary parent-child process info. */
+struct process_info
+ {
+    pid_t parent_id;
+    int exit_status;
+    bool already_waited;
+    struct semaphore sema;
+    bool load_suceeded;
+ };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

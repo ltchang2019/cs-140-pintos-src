@@ -34,17 +34,29 @@ syscall_handler (struct intr_frame *f)
   int syscall_num = (int)read_frame (f, 0);
   switch (syscall_num) {
     case SYS_HALT:
+      break;
     case SYS_EXIT:
+      break;
     case SYS_EXEC:
+      break;
     case SYS_WAIT:
+      break;
     case SYS_CREATE:
+      break;
     case SYS_REMOVE:
+      break;
     case SYS_OPEN:
+      break;
     case SYS_FILESIZE:
+      break;
     case SYS_READ:
+      break;
     case SYS_WRITE:
+      break;
     case SYS_SEEK:
+      break;
     case SYS_TELL:
+      break;
     case SYS_CLOSE:
       break;
   }
@@ -101,7 +113,7 @@ syscall_write (int fd, const void *buf, unsigned size)
   {
     putbuf (buf, size);
     return size;
-  } 
+  }
   else 
   {
     lock_acquire (&filesys_lock);
