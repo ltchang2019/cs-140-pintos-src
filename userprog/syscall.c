@@ -7,9 +7,9 @@
 #include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "threads/synch.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 
@@ -20,7 +20,6 @@ typedef tid_t pid_t;
 struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
-static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
 static void syscall_exit (int status);
 static bool syscall_create (const char *file, unsigned initial_size);
 static bool syscall_remove (const char *file);
@@ -28,9 +27,16 @@ static int syscall_open (const char *file);
 static int syscall_filesize (int fd);
 static int syscall_read (int fd, void *buf, unsigned size);
 static int syscall_write (int fd, const void *buf, unsigned size);
+static void syscall_seek (int fd, unsigned position);
+static unsigned syscall_tell (int fd);
+static void syscall_close (int fd);
 
 // keep in interrupt.c and import err lib to check?
 static uint32_t read_frame (struct intr_frame *, int offset);
+static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
+
+static struct file *fd_to_file (int fd);
+static void fd_close_all (void);
 
 void
 syscall_init (void) 
@@ -95,8 +101,24 @@ syscall_handler (struct intr_frame *f)
         break;
       }
     case SYS_SEEK:
+      {
+        int fd = (int)read_frame (f, 4);
+        unsigned position = (unsigned)read_frame (f, 8);
+        syscall_seek (fd, position);
+        break;
+      }
     case SYS_TELL:
+      {
+        int fd = (int)read_frame (f, 4);
+        syscall_tell (fd);
+        break;
+      }
     case SYS_CLOSE:
+      {
+        int fd = (int)read_frame (f, 4);
+        syscall_close (fd);
+        break;
+      }
     default:
       break;
   }
@@ -127,6 +149,30 @@ check_usr_ptr (const void *usr_ptr)
   uint32_t *pd = thread_current ()->pagedir;
   if (pagedir_get_page (pd, usr_ptr) == NULL)
     syscall_exit (-1);
+}
+
+/* Returns a pointer to the file associated with FD in current
+   process's set of file descriptors, or NULL if none. */
+static struct file *
+fd_to_file (int fd)
+{
+  struct file *file = NULL;
+  struct thread *t = thread_current ();
+
+  /* Find the fd_entry corresponding to FD in fd_list of process. */
+  struct list_elem *fd_elem;
+  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
+       fd_elem = list_next (fd_elem))
+    {
+      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
+      if (entry->fd == fd)
+        {
+          file = entry->file;
+          break;
+        }
+    }
+  
+  return file;
 }
 
 // TODO
@@ -192,28 +238,8 @@ syscall_open (const char *file)
 static int
 syscall_filesize (int fd)
 {
-  struct file *file = NULL;
-  struct thread *t = thread_current ();
-
-  /* Find the fd_entry corresponding to FD in fd_list of process. */
-  struct list_elem *fd_elem;
-  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
-       fd_elem = list_next (fd_elem))
-    {
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      if (entry->fd == fd)
-        {
-          file = entry->file;
-          break;
-        }
-    }
-  
-  /* Return 0 if no open file corresponds to FD. */
-  if (file == NULL)
-    return 0;
-
   lock_acquire (&filesys_lock);
-  int filesize = file_length (file);
+  int filesize = file_length (fd_to_file (fd));
   lock_release (&filesys_lock);
   return filesize;
 }
@@ -244,33 +270,19 @@ syscall_read (int fd, void *buf, unsigned size)
   if (fd == STDOUT_FILENO)
     return -1;
 
-  struct file *file = NULL;
-  struct thread *t = thread_current ();
-
-  /* Find the fd_entry corresponding to FD in fd_list of process. */
-  struct list_elem *fd_elem;
-  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
-       fd_elem = list_next (fd_elem))
-    {
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      if (entry->fd == fd)
-        {
-          file = entry->file;
-          break;
-        }
-    }
-
-  /* Return -1 if no open file corresponds to FD. */
+  struct file *file = fd_to_file (fd);
   if (file == NULL)
-    return 0;
-
+    return -1;
   lock_acquire (&filesys_lock);
   int bytes_read = file_read (file, buf, size);
   lock_release (&filesys_lock);
   return bytes_read;
 }
 
-// TODO
+/* Writes SIZE bytes from BUF to the file open as FD. Returns the
+   number of bytes actually written, which may be less than SIZE if
+   some bytes could not be written (e.g., write past end-of-file).
+   FD 1 writes to the console. */
 static int
 syscall_write (int fd, const void *buf, unsigned size)
 {
@@ -288,7 +300,42 @@ syscall_write (int fd, const void *buf, unsigned size)
   if (fd == STDIN_FILENO)
     return 0;
 
-  struct file *file = NULL;
+  struct file *file = fd_to_file (fd);
+  if (file == NULL)
+    return 0;
+  lock_acquire (&filesys_lock);
+  int bytes_written = file_write (file, buf, size);
+  lock_release (&filesys_lock);
+  return bytes_written;
+}
+
+/* Changes the next byte to be read or written in file open
+   as FD to POSITION, expressed in bytes from the beginning
+   of the file. Returns without action if file not open. */
+static void
+syscall_seek (int fd, unsigned position)
+{
+  lock_acquire (&filesys_lock);
+  file_seek (fd_to_file (fd), position);
+  lock_release (&filesys_lock);
+}
+
+/* Returns the position of the next byte to be read or written
+   in file open as FD, expressed in bytes from the beginning
+   of the file */
+static unsigned
+syscall_tell (int fd)
+{
+  lock_acquire (&filesys_lock);
+  file_tell (fd_to_file (fd));
+  lock_release (&filesys_lock);
+}
+
+/* Close file descriptor FD. */
+static void
+syscall_close (int fd)
+{
+  struct file *file;
   struct thread *t = thread_current ();
 
   /* Find the fd_entry corresponding to FD in fd_list of process. */
@@ -300,16 +347,34 @@ syscall_write (int fd, const void *buf, unsigned size)
       if (entry->fd == fd)
         {
           file = entry->file;
-          break;
+          lock_acquire (&filesys_lock);
+          file_close (file);
+          lock_release (&filesys_lock);
+          list_remove (fd_elem);
+          free (entry);
+          return;
         }
     }
+}
 
-  /* Return -1 if no open file corresponds to FD. */
-  if (file == NULL)
-    return 0;
+/* Closes all open file descriptors of a process. */
+static void
+fd_close_all (void)
+{
+  struct file *file;
+  struct thread *t = thread_current ();
 
-  lock_acquire (&filesys_lock);
-  int bytes_written = file_write (file, buf, size);
-  lock_release (&filesys_lock);
-  return bytes_written;
+  /* Remove and deallocate memory of all fd_entry structs in fd_list. */
+  struct list_elem *fd_elem;
+  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
+       fd_elem = list_next (fd_elem))
+    {
+      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
+      file = entry->file;
+      lock_acquire (&filesys_lock);
+      file_close (file);
+      lock_release (&filesys_lock);
+      list_remove (fd_elem);
+      free (entry);
+    }
 }
