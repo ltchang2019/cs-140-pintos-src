@@ -85,6 +85,8 @@ void thread_schedule_tail (struct thread *prev);
 static void thread_check_preempt (void);
 static tid_t allocate_tid (void);
 
+struct p_info *child_p_info_by_tid (tid_t tid);
+static void init_p_info (struct thread *t);
 
 /* Comparison function for ready queue of threads ready to run.
    Compares by priority and sorts in descending order. */
@@ -114,6 +116,23 @@ child_p_info_by_tid (tid_t tid)
       curr = list_next (curr);
     }
   return NULL;
+}
+
+static void
+init_p_info (struct thread *t)
+{
+  struct p_info *p_info = malloc (sizeof(struct p_info));
+  struct semaphore *sema = malloc (sizeof(struct semaphore));
+  sema_init (sema, 0);
+
+  p_info->tid = t->tid;
+  p_info->exit_status = 0;
+  p_info->sema = sema;
+  p_info->load_succeeded = false;
+
+  t->p_info = p_info;
+  if (t != initial_thread)
+    list_push_back (&thread_current ()->child_p_info_list, &p_info->elem);
 }
 
 /* Initializes the threading system by transforming the code
@@ -160,6 +179,9 @@ thread_start (void)
   /* Create the idle thread. */
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
+
+  init_p_info (initial_thread);
+
   thread_create ("idle", PRI_MIN, idle, &idle_started);
 
   /* Start preemptive thread scheduling. */
@@ -232,9 +254,10 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   struct thread *cur = thread_current ();
 
-  /* if USERPROG, allocate_tid must go before init_thread so that p_info can access t->tid */
-  tid = t->tid = allocate_tid ();
   init_thread (t, name, priority, cur->nice, cur->recent_cpu);
+  tid = t->tid = allocate_tid ();
+  
+  init_p_info (t);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -687,20 +710,6 @@ init_thread (struct thread *t, const char *name, int priority,
   t->desired_lock = NULL;
   list_init (&t->held_locks);
   t->magic = THREAD_MAGIC;
-
-  #ifdef USERPROG
-    struct p_info *p_info = malloc (sizeof(struct p_info));
-    struct semaphore *sema = malloc (sizeof(struct semaphore));
-    sema_init (sema, 0);
-
-    p_info->tid = t->tid;
-    p_info->exit_status = 0;
-    p_info->sema = sema;
-    p_info->load_succeeded = false;
-
-    t->p_info = p_info;
-    list_push_back (&thread_current ()->child_p_info_list, &p_info->elem);
-  #endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

@@ -129,8 +129,8 @@ syscall_exec (const char *cmd_line)
   return pid;
 }
 
-/* Set's p_info exit_status to status and ups semaphore if 
-   parent still running (i.e. p_info not NULL). Frees all child
+/* Set's p_info exit_status to status and ups semaphore for parent 
+   if parent still running (i.e. p_info not NULL). Frees all child
    p_info structs and prints process termination message. */
 static void 
 syscall_exit (int status)
