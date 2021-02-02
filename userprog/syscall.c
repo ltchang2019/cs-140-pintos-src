@@ -56,6 +56,7 @@ syscall_handler (struct intr_frame *f)
   int syscall_num = (int)read_frame (f, 0);
   switch (syscall_num) {
     case SYS_HALT:
+      shutdown_power_off ();
       break;
     case SYS_EXIT:
       {
@@ -66,13 +67,15 @@ syscall_handler (struct intr_frame *f)
     case SYS_EXEC:
       {
         const char *cmd_line = (const char *)read_frame (f, 4);
-        syscall_exec (cmd_line);
+        pid_t pid = syscall_exec (cmd_line);
+        write_frame (f, pid);
         break;
       }
     case SYS_WAIT:
       {
         tid_t tid = (tid_t)read_frame (f, 4);
-        syscall_wait (tid);
+        int exit_status = syscall_wait (tid);
+        write_frame (f, exit_status);
         break;
       }
     case SYS_CREATE:

@@ -180,7 +180,9 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
 
+  #ifdef USERPROG
   init_p_info (initial_thread);
+  #endif
 
   thread_create ("idle", PRI_MIN, idle, &idle_started);
 
@@ -257,7 +259,9 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority, cur->nice, cur->recent_cpu);
   tid = t->tid = allocate_tid ();
   
+  #ifdef USERPROG
   init_p_info (t);
+  #endif
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
