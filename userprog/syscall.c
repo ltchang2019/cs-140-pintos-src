@@ -168,13 +168,12 @@ static void
 free_child_p_info_list (void)
 {
   struct thread *t = thread_current ();
-  struct list_elem *curr = list_begin (&t->child_p_info_list);
-  struct list_elem *end = list_end (&t->child_p_info_list);
-  while (curr != end)
+  while (!list_empty (&t->child_p_info_list))
     {
+      struct list_elem *curr = list_pop_front (&t->child_p_info_list);
       struct p_info *p_info = list_entry (curr, struct p_info, elem);
+      list_remove (curr);
       free (p_info);
-      curr = list_next (curr);
     }
 }
 
@@ -184,8 +183,6 @@ write_frame (struct intr_frame *f, uintptr_t ret_value)
 {
   f->eax = ret_value;
 }
-
-
 
 static void
 check_usr_str (const char *usr_ptr)
@@ -261,12 +258,6 @@ syscall_exec (const char *cmd_line)
 {
   check_usr_ptr (cmd_line);
   check_usr_str (cmd_line);
-
-  struct file *open_file = filesys_open (cmd_line);
-  if (open_file == NULL)
-    return -1;
-
-  file_close (open_file);
 
   pid_t pid = process_execute (cmd_line);
   return pid;

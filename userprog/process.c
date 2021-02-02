@@ -176,6 +176,9 @@ process_exit (void)
   struct thread *t = thread_current ();
   uint32_t *pd;
 
+  /* Closing executable allows writes again. */
+  file_close (t->executable);
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = t->pagedir;
@@ -192,9 +195,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-
-  /* Closing executable allows writes again. */
-  file_close (t->executable);
 }
 
 /* Sets up the CPU for running user code in the current
