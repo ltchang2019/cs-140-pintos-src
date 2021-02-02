@@ -19,9 +19,6 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-/* Size of pointer in bytes. */
-#define PTR_SIZE sizeof (uintptr_t)
-
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
 

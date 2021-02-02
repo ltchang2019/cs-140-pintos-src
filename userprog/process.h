@@ -3,6 +3,9 @@
 
 #include "threads/thread.h"
 
+/* Size of pointer in bytes. */
+#define PTR_SIZE sizeof (uintptr_t)
+
 tid_t process_execute (const char *cmd);
 int process_wait (tid_t);
 void process_exit (void);

@@ -21,6 +21,8 @@ struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
 
+static void check_usr_str (const char *usr_ptr);
+static void check_usr_ptr_mult (const void *start_ptr, int num_bytes);
 static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
 static pid_t syscall_exec (const char *cmd_line);
 static void syscall_exit (int status);
@@ -36,9 +38,9 @@ static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
 
 // keep in interrupt.c and import err lib to check?
-static uint32_t read_frame (struct intr_frame *, int byte_offset);
+static uintptr_t read_frame (struct intr_frame *, int byte_offset);
 static void free_child_p_info_list (void);
-static void write_frame (struct intr_frame *, uint32_t ret_value);
+static void write_frame (struct intr_frame *, uintptr_t ret_value);
 
 static struct file *fd_to_file (int fd);
 static void fd_close_all (void);
@@ -60,88 +62,88 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_EXIT:
       {
-        int status = (int)read_frame (f, 4);
+        int status = (int)read_frame (f, PTR_SIZE * 1);
         syscall_exit (status);
         break;
       }
     case SYS_EXEC:
       {
-        const char *cmd_line = (const char *)read_frame (f, 4);
+        const char *cmd_line = (const char *)read_frame (f, PTR_SIZE * 1);
         pid_t pid = syscall_exec (cmd_line);
         write_frame (f, pid);
         break;
       }
     case SYS_WAIT:
       {
-        tid_t tid = (tid_t)read_frame (f, 4);
+        tid_t tid = (tid_t)read_frame (f, PTR_SIZE * 1);
         int exit_status = syscall_wait (tid);
         write_frame (f, exit_status);
         break;
       }
     case SYS_CREATE:
       {
-        const char *file = (const char *)read_frame (f, 4);
-        unsigned initial_size = (unsigned)read_frame (f, 8);
+        const char *file = (const char *)read_frame (f, PTR_SIZE * 1);
+        unsigned initial_size = (unsigned)read_frame (f, PTR_SIZE * 2);
         bool create_succeeded = syscall_create (file, initial_size);
         write_frame (f, create_succeeded);
         break;
       }
     case SYS_REMOVE:
       {
-        const char *file = (const char *)read_frame (f, 4);
+        const char *file = (const char *)read_frame (f, PTR_SIZE * 1);
         bool remove_succeeded = syscall_remove (file);
         write_frame (f, remove_succeeded);
         break;
       }
     case SYS_OPEN:
       {
-        const char *file = (const char *)read_frame (f, 4);
+        const char *file = (const char *)read_frame (f, PTR_SIZE * 1);
         int fd = syscall_open (file);
         write_frame (f, fd);
         break;
       }
     case SYS_FILESIZE:
       {
-        int fd = (int)read_frame (f, 4);
+        int fd = (int)read_frame (f, PTR_SIZE * 1);
         int filesize = syscall_filesize (fd);
         write_frame (f, filesize);
         break;
       }
     case SYS_READ:
       {
-        int fd = (int)read_frame (f, 4);
-        void *buf = (void *)read_frame (f, 8);
-        unsigned size = (unsigned)read_frame (f, 12);
+        int fd = (int)read_frame (f, PTR_SIZE * 1);
+        void *buf = (void *)read_frame (f, PTR_SIZE * 2);
+        unsigned size = (unsigned)read_frame (f, PTR_SIZE * 3);
         int bytes_read = syscall_read (fd, buf, size);
         write_frame (f, bytes_read);
         break;
       }
     case SYS_WRITE:
       {
-        int fd = (int)read_frame (f, 4);
-        const void *buf = (const void *)read_frame (f, 8);
-        unsigned size = (unsigned)read_frame (f, 12);
+        int fd = (int)read_frame (f, PTR_SIZE * 1);
+        const void *buf = (const void *)read_frame (f, PTR_SIZE * 2);
+        unsigned size = (unsigned)read_frame (f, PTR_SIZE * 3);
         int bytes_written = syscall_write (fd, buf, size);
         write_frame (f, bytes_written);
         break;
       }
     case SYS_SEEK:
       {
-        int fd = (int)read_frame (f, 4);
-        unsigned position = (unsigned)read_frame (f, 8);
+        int fd = (int)read_frame (f, PTR_SIZE * 1);
+        unsigned position = (unsigned)read_frame (f, PTR_SIZE * 2);
         syscall_seek (fd, position);
         break;
       }
     case SYS_TELL:
       {
-        int fd = (int)read_frame (f, 4);
+        int fd = (int)read_frame (f, PTR_SIZE * 1);
         unsigned position = syscall_tell (fd);
         write_frame (f, position);
         break;
       }
     case SYS_CLOSE:
       {
-        int fd = (int)read_frame (f, 4);
+        int fd = (int)read_frame (f, PTR_SIZE * 1);
         syscall_close (fd);
         break;
       }
@@ -151,13 +153,13 @@ syscall_handler (struct intr_frame *f)
 }
 
 /* Checks address at intr_frame->esp + offset and returns
-   value as uint32_t if valid. User must cast value to desired type. */
-static uint32_t
+   value as uintptr_t if valid. User must cast value to desired type. */
+static uintptr_t
 read_frame (struct intr_frame *f, int byte_offset)
 {
   void *addr = f->esp + byte_offset;
-  check_usr_ptr (addr);
-  return *(uint32_t *)addr;
+  check_usr_ptr_mult (addr, 4);
+  return *(uintptr_t *)addr;
 }
 
 /* Traverse through current thread's child_p_info_list
@@ -178,11 +180,40 @@ free_child_p_info_list (void)
 
 /* Write return value of system call to intr_frame->eax. */
 static void
-write_frame (struct intr_frame *f, uint32_t ret_value)
+write_frame (struct intr_frame *f, uintptr_t ret_value)
 {
   f->eax = ret_value;
 }
 
+
+
+static void
+check_usr_str (const char *usr_ptr)
+{
+  check_usr_ptr (usr_ptr);
+
+  char *curr = (char *)usr_ptr + 1;
+  while (true)
+    {
+      check_usr_ptr(curr);
+      if (*curr == 0)
+        break;
+      
+      curr++;
+    }
+}
+
+/* Validates user pointer. Checks that pointer is not NULL,
+   is a valid user vaddr, and is mapped to physical memory.
+   Exits and terminates process if checks fail. */
+static void 
+check_usr_ptr_mult (const void *usr_ptr, int num_bytes)
+{
+  for (int i = 0; i < num_bytes; i++)
+    {
+      check_usr_ptr ((char *)usr_ptr + i);
+    }
+}
 
 /* Validates user pointer. Checks that pointer is not NULL,
    is a valid user vaddr, and is mapped to physical memory.
@@ -196,7 +227,7 @@ check_usr_ptr (const void *usr_ptr)
   if (!is_user_vaddr (usr_ptr))
     syscall_exit (-1);
   
-  uint32_t *pd = thread_current ()->pagedir;
+  uintptr_t *pd = thread_current ()->pagedir;
   if (pagedir_get_page (pd, usr_ptr) == NULL)
     syscall_exit (-1);
 }
@@ -225,10 +256,18 @@ fd_to_file (int fd)
   return file;
 }
 
-
 static pid_t
 syscall_exec (const char *cmd_line)
 {
+  check_usr_ptr (cmd_line);
+  check_usr_str (cmd_line);
+
+  struct file *open_file = filesys_open (cmd_line);
+  if (open_file == NULL)
+    return -1;
+
+  file_close (open_file);
+
   pid_t pid = process_execute (cmd_line);
   return pid;
 }
@@ -271,6 +310,7 @@ syscall_wait (tid_t tid)
 static bool
 syscall_create (const char *file, unsigned initial_size)
 {
+  check_usr_ptr (file);
   lock_acquire (&filesys_lock);
   bool create_succeeded = filesys_create (file, initial_size);
   lock_release (&filesys_lock);
@@ -294,6 +334,7 @@ syscall_remove (const char *file)
 static int
 syscall_open (const char *file)
 {
+  check_usr_ptr (file);
   lock_acquire (&filesys_lock);
   struct file *open_file = filesys_open (file);
   lock_release (&filesys_lock);
