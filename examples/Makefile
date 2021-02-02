@@ -4,7 +4,7 @@ SRCDIR = ..
 # To add a new test, put its name on the PROGS list
 # and then add a name_SRC line that lists its source files.
 PROGS = cat cmp cp echo halt hex-dump ls mcat mcp mkdir pwd rm shell \
-	bubsort insult lineup matmult recursor test-exec-once
+	bubsort insult lineup matmult recursor test-exec-once test-syscalls
 
 # Should work from project 2 onward.
 cat_SRC = cat.c
@@ -19,6 +19,10 @@ ls_SRC = ls.c
 recursor_SRC = recursor.c
 rm_SRC = rm.c
 test-exec-once_SRC = test-exec-once.c
+
+# Additional test programs to verify functionality of filesystem 
+# system calls in project 2.
+test-syscalls_SRC = test-syscalls.c
 
 # Should work in project 3; also in project 4 if VM is included.
 bubsort_SRC = bubsort.c

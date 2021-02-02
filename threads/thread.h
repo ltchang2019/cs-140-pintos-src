@@ -109,6 +109,9 @@ struct thread
 
 /* Project 2 Additions */    
 #ifdef USERPROG
+   int fd_counter;                     /* Counter for file descriptors. */
+   struct list fd_list;                /* List of open file descriptors. */
+
     struct p_info *p_info;
     struct list child_p_info_list;
     uint32_t *pagedir;                  /* Page directory. */
@@ -131,6 +134,15 @@ struct p_info
  };
 
 struct p_info *child_p_info_by_tid (tid_t);
+
+/* File descriptor entry. Contains the file descriptor and
+   a pointer to its associated file struct. */
+struct fd_entry
+  {
+     int fd;
+     struct file *file;
+     struct list_elem elem;
+  };
 #endif
 
 /* If false (default), use round-robin scheduler.
