@@ -156,23 +156,7 @@ syscall_exit (int status)
 static int
 syscall_wait (tid_t tid)
 {
-  struct p_info *child_p_info = child_p_info_by_tid (tid);
-
-  /* Already waited on child and freed struct. */
-  if (child_p_info == NULL) 
-    return -1;
-  
-  /* Down child's semaphore. Once unblocked, free p_info
-     struct and return exit status. If this process tries to
-     wait on same tid again, it will hit p_info == NULL and 
-     return -1 as intended. */
-  sema_down (child_p_info->sema);
-
-  int exit_status = child_p_info->exit_status;
-  list_remove (&child_p_info->elem);
-  free (child_p_info);
-  
-  return exit_status;
+  return process_wait (tid);
 }
 
 // TODO
