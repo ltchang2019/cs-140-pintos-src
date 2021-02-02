@@ -106,11 +106,11 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-
 /* Project 2 Additions */    
 #ifdef USERPROG
-   int fd_counter;                     /* Counter for file descriptors. */
-   struct list fd_list;                /* List of open file descriptors. */
+    int fd_counter;                     /* Counter for file descriptors. */
+    struct list fd_list;                /* List of open file descriptors. */
+    struct file *executable;            /* Reference to executable file. */
 
     struct p_info *p_info;
     struct list child_p_info_list;

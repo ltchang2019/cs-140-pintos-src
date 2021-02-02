@@ -192,6 +192,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  /* Closing executable allows writes again. */
+  file_close (t->executable);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -308,6 +311,11 @@ load (const char *cmd_args, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", cmd_args);
       goto done; 
     }
+  
+  /* If valid executable to be run, deny writes and set
+     struct thread's executable field. */
+  file_deny_write (file);
+  t->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -392,7 +400,6 @@ load (const char *cmd_args, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
