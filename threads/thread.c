@@ -1,18 +1,18 @@
 #include "threads/thread.h"
 #include <debug.h>
-#include <stddef.h>
 #include <random.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/ready_queue.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -68,8 +68,8 @@ bool thread_mlfqs;
 static fixed32_t load_avg;
 
 /* Constants used by the multi-level feedback queue scheduler. */
-#define NICE_MAX 20  /* Max nice value of a thread (generous with CPU time). */
-#define NICE_MIN -20 /* Min nice value of a thread (a Grinch with CPU time). */
+#define NICE_MAX 20  /* Max nice value of a thread (generous with CPU). */
+#define NICE_MIN -20 /* Min nice value of a thread (a Grinch with CPU). */
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -85,7 +85,6 @@ void thread_schedule_tail (struct thread *prev);
 static void thread_check_preempt (void);
 static tid_t allocate_tid (void);
 
-struct p_info *child_p_info_by_tid (tid_t tid);
 static void init_p_info (struct thread *t);
 
 /* Comparison function for ready queue of threads ready to run.
@@ -100,8 +99,8 @@ cmp_priority (const struct list_elem *a, const struct list_elem *b,
 }
 
 /* Searches through current thread's child_p_info_list for
-   process info struct with matching tid. Returns struct if found
-   and NULL if otherwise. */
+   process info struct with matching TID. Returns struct if
+   found and NULL if otherwise. */
 struct p_info *
 child_p_info_by_tid (tid_t tid)
 {
@@ -118,11 +117,12 @@ child_p_info_by_tid (tid_t tid)
   return NULL;
 }
 
+/* Initialize process info struct for a child thread T. */
 static void
 init_p_info (struct thread *t)
 {
-  struct p_info *p_info = malloc (sizeof(struct p_info));
-  struct semaphore *sema = malloc (sizeof(struct semaphore));
+  struct p_info *p_info = malloc (sizeof (struct p_info));
+  struct semaphore *sema = malloc (sizeof (struct semaphore));
   sema_init (sema, 0);
 
   p_info->tid = t->tid;
@@ -153,7 +153,7 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
-  /* Initializations when using multi-level feedback queue scheduler. */
+  /* Initialization when using multi-level feedback queue scheduler. */
   if (thread_mlfqs)
     load_avg = 0;
 
@@ -180,9 +180,9 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
 
-  #ifdef USERPROG
+#ifdef USERPROG
   init_p_info (initial_thread);
-  #endif
+#endif
 
   thread_create ("idle", PRI_MIN, idle, &idle_started);
 
@@ -258,10 +258,10 @@ thread_create (const char *name, int priority,
 
   init_thread (t, name, priority, cur->nice, cur->recent_cpu);
   tid = t->tid = allocate_tid ();
-  
-  #ifdef USERPROG
+
+#if USERPROG
   init_p_info (t);
-  #endif
+#endif
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -715,12 +715,12 @@ init_thread (struct thread *t, const char *name, int priority,
   list_init (&t->held_locks);
   t->magic = THREAD_MAGIC;
 
-  #ifdef USERPROG
+#ifdef USERPROG
+  /* 0 and 1 reserved for stdin and stdout, respectively. */
+  t->fd_counter = 2;
+  list_init (&t->fd_list);
   list_init (&t->child_p_info_list);
-
-  t->fd_counter = 2;         /* 0 and 1 reserved for stdin and stdout. */
-  list_init (&t->fd_list);   /* List of open file descriptors. */
-  #endif
+#endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

@@ -3,7 +3,7 @@
 
 #include "threads/thread.h"
 
-/* Size of pointer in bytes. */
+/* Size of pointer type in bytes. */
 #define PTR_SIZE sizeof (uintptr_t)
 
 tid_t process_execute (const char *cmd);

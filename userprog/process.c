@@ -87,17 +87,16 @@ process_execute (const char *cmd)
   tid = thread_create (cmd_args, PRI_DEFAULT, start_process, NULL);
 
   /* Block on child's p_info semaphore until child has confirmed
-     successful load in its call to start_process. Return -1 if failed load. */
+     successful load in call to start_process. Return -1 if failed. */
   struct p_info *child_p_info = child_p_info_by_tid (tid);
   sema_down (child_p_info->sema);
-  if (child_p_info->load_succeeded == false)
-    return -1;
-  
-  if (tid == TID_ERROR)
+  if (!child_p_info->load_succeeded || tid == TID_ERROR)
     {
-      palloc_free_page (cmd_copy); 
-      palloc_free_page (cmd_args);
+      palloc_free_page (cmd_copy);
+      return TID_ERROR;
     }
+  
+  palloc_free_page (cmd_copy);
   return tid;
 }
 
@@ -114,7 +113,11 @@ start_process (void *aux UNUSED)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  lock_acquire (&filesys_lock);
   success = load (cmd_args, &if_.eip, &if_.esp);
+  lock_release (&filesys_lock);
+  palloc_free_page (cmd_args);
 
   /* If load was successful, set load_succeeded to true. */
   if (success)
@@ -124,7 +127,6 @@ start_process (void *aux UNUSED)
   sema_up (thread_current ()->p_info->sema);
 
   /* If load failed, quit. */
-  palloc_free_page (cmd_args);
   if (!success) 
     thread_exit ();
 
@@ -177,7 +179,9 @@ process_exit (void)
   uint32_t *pd;
 
   /* Closing executable allows writes again. */
+  lock_acquire (&filesys_lock);
   file_close (t->executable);
+  lock_release (&filesys_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
