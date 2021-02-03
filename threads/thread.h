@@ -19,12 +19,15 @@ enum thread_status
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
-#define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
+#define TID_ERROR ((tid_t) - 1)         /* Error value for tid_t. */
 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+/* Lock for access to the filesys interface for user programs. */
+struct lock filesys_lock;
 
 /* A kernel thread or user process.
 
@@ -84,14 +87,15 @@ typedef int tid_t;
    blocked state is on a semaphore wait list. */
 struct thread
   {
-    /* Owned by thread.c. */
+
+    /* Project 1 additions. */
     tid_t tid;                        /* Thread identifier. */
     enum thread_status status;        /* Thread state. */
     char name[16];                    /* Name (for debugging purposes). */
     uint8_t *stack;                   /* Saved stack pointer. */
     int curr_priority;                /* Current priority. */
-    int owned_priority;               /* Priority set by owning thread only. */
-    struct list_elem allelem;         /* List element for all threads list. */
+    int owned_priority;               /* Priority set by owning thread. */
+    struct list_elem allelem;         /* List element in all threads list. */
 
     /* For priority donation. */
     int num_donations;                /* Number of priority donations. */
@@ -103,15 +107,43 @@ struct thread
     fixed32_t recent_cpu;             /* Thread recent CPU usage. */
 
     /* Shared between thread.c and synch.c. */
-    struct list_elem elem;              /* List element. */
+    struct list_elem elem;            /* List element. */
 
-#ifdef USERPROG
-    /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
+    /* Project 2 additions. */  
+#ifdef USERPROG  
+    uint32_t *pagedir;                /* Owned by userprog/process.c. */
+    int fd_counter;                   /* Counter for file descriptors. */
+    struct list fd_list;              /* List of open file descriptors. */
+    struct file *executable;          /* Reference to executable file. */
+    struct list child_p_info_list;    /* List of child p_info structs. */
+    struct p_info *p_info;            /* Reference to parent's p_info
+                                         struct about this child. */
 #endif
 
     /* Owned by thread.c. */
-    unsigned magic;                     /* Detects stack overflow. */
+    unsigned magic;                   /* Detects stack overflow. */
+  };
+
+/* Process info struct. Contains information necessary for
+   parent and child to communicate with each other about child
+   load status and child exit status. */ 
+struct p_info
+  {
+    tid_t tid;                        /* TID of child process. */
+    int exit_status;                  /* Exit status of child. */
+    bool load_succeeded;              /* Indicator for child startup. */
+    struct semaphore *sema;           /* Synchronization so parent waits
+                                         properly for child. */
+    struct list_elem elem;            /* List element. */
+  };
+
+/* File descriptor entry. Contains the file descriptor and
+   a pointer to its associated file struct. */
+struct fd_entry
+  {
+    int fd;                           /* Non-negative integer descriptor. */
+    struct file *file;                /* Reference to open file. */
+    struct list_elem elem;            /* List element. */
   };
 
 /* If false (default), use round-robin scheduler.
@@ -148,8 +180,8 @@ void thread_sort_ready_list (void);
 int thread_get_priority (void);
 void thread_set_priority (int);
 void thread_set_donated_priority (struct thread *, int);
-bool cmp_priority (const struct list_elem *a, const struct list_elem *b,
-                   void *aux UNUSED);
+bool cmp_priority (const struct list_elem *a,
+                   const struct list_elem *b, void *aux UNUSED);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
@@ -161,5 +193,7 @@ void increment_recent_cpu (void);
 fixed32_t load_avg_coeff (void);
 void calc_recent_cpu (struct thread *t, void *aux);
 void calc_priority (struct thread *t, void *aux UNUSED);
+
+struct p_info *child_p_info_by_tid (tid_t);
 
 #endif /* threads/thread.h */

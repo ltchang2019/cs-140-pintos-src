@@ -1,12 +1,13 @@
 #include "threads/thread.h"
 #include <debug.h>
-#include <stddef.h>
 #include <random.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/ready_queue.h"
 #include "threads/switch.h"
@@ -67,8 +68,8 @@ bool thread_mlfqs;
 static fixed32_t load_avg;
 
 /* Constants used by the multi-level feedback queue scheduler. */
-#define NICE_MAX 20  /* Max nice value of a thread (generous with CPU time). */
-#define NICE_MIN -20 /* Min nice value of a thread (a Grinch with CPU time). */
+#define NICE_MAX 20  /* Max nice value of a thread (generous with CPU). */
+#define NICE_MIN -20 /* Min nice value of a thread (a Grinch with CPU). */
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -84,6 +85,7 @@ void thread_schedule_tail (struct thread *prev);
 static void thread_check_preempt (void);
 static tid_t allocate_tid (void);
 
+static void init_p_info (struct thread *t);
 
 /* Comparison function for ready queue of threads ready to run.
    Compares by priority and sorts in descending order. */
@@ -94,6 +96,43 @@ cmp_priority (const struct list_elem *a, const struct list_elem *b,
   int a_pri = list_entry (a, struct thread, elem)->curr_priority;
   int b_pri = list_entry (b, struct thread, elem)->curr_priority;
   return a_pri > b_pri;
+}
+
+/* Searches through current thread's child_p_info_list for
+   process info struct with matching TID. Returns struct if
+   found and NULL if otherwise. */
+struct p_info *
+child_p_info_by_tid (tid_t tid)
+{
+  struct thread *t = thread_current ();
+  struct list_elem *curr = list_begin (&t->child_p_info_list);
+  struct list_elem *end = list_end (&t->child_p_info_list);
+  while (curr != end)
+    {
+      struct p_info *p_info = list_entry (curr, struct p_info, elem);
+      if (p_info->tid == tid) 
+        return p_info;
+      curr = list_next (curr);
+    }
+  return NULL;
+}
+
+/* Initialize process info struct for a child thread T. */
+static void
+init_p_info (struct thread *t)
+{
+  struct p_info *p_info = malloc (sizeof (struct p_info));
+  struct semaphore *sema = malloc (sizeof (struct semaphore));
+  sema_init (sema, 0);
+
+  p_info->tid = t->tid;
+  p_info->exit_status = 0;
+  p_info->sema = sema;
+  p_info->load_succeeded = false;
+
+  t->p_info = p_info;
+  if (t != initial_thread)
+    list_push_back (&thread_current ()->child_p_info_list, &p_info->elem);
 }
 
 /* Initializes the threading system by transforming the code
@@ -114,7 +153,7 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
-  /* Initializations when using multi-level feedback queue scheduler. */
+  /* Initialization when using multi-level feedback queue scheduler. */
   if (thread_mlfqs)
     load_avg = 0;
 
@@ -140,6 +179,11 @@ thread_start (void)
   /* Create the idle thread. */
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
+
+#ifdef USERPROG
+  init_p_info (initial_thread);
+#endif
+
   thread_create ("idle", PRI_MIN, idle, &idle_started);
 
   /* Start preemptive thread scheduling. */
@@ -211,8 +255,13 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   struct thread *cur = thread_current ();
+
   init_thread (t, name, priority, cur->nice, cur->recent_cpu);
   tid = t->tid = allocate_tid ();
+
+#if USERPROG
+  init_p_info (t);
+#endif
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -665,6 +714,13 @@ init_thread (struct thread *t, const char *name, int priority,
   t->desired_lock = NULL;
   list_init (&t->held_locks);
   t->magic = THREAD_MAGIC;
+
+#ifdef USERPROG
+  /* 0 and 1 reserved for stdin and stdout, respectively. */
+  t->fd_counter = 2;
+  list_init (&t->fd_list);
+  list_init (&t->child_p_info_list);
+#endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
