@@ -14,19 +14,25 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-/* Size of pointer in bytes. */
-#define PTR_SIZE sizeof(uintptr_t)
-
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
 
+/* Argument passing. 
+
+   The command line is parsed into arguments separated by
+   null terminator characters. All leading whitespace
+   characters are discarded. */
+static char *cmd_args;         /* The parsed command line. */
+static int cmd_args_len;       /* Length of CMD_ARGS. */
+static int argc;               /* Argument count. */
+
 static thread_func start_process NO_RETURN;
-static bool load (const char *file_name, char *cmd_name,
-                  void (**eip) (void), void **esp);
+static bool load (const char *cmd_args, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from the 
    file that is the first argument in CMD. The new thread may
@@ -46,55 +52,81 @@ process_execute (const char *cmd)
     return TID_ERROR;
   strlcpy (cmd_copy, cmd, PGSIZE);
 
-  /* Obtain the name of the file (i.e., first arugment in CMD).
-     This will become the name of the new thread. */
-  char *cmd_args;
-  char *file_name;
+  cmd_args_len = 0;
+  argc = 0;
+  char *arg;
   char *save_ptr;
+
+  /* Parse CMD_COPY and store in CMD_ARGS. Obtain length of
+     CMD_ARGS and number of arguments and store in CMD_ARGS_LEN
+     and ARGC, respectively. */
   cmd_args = palloc_get_page (0);
-  if (cmd_args == NULL)
+  if (cmd_args == NULL) 
     {
       palloc_free_page (cmd_copy);
       return TID_ERROR;
     }
-  strlcpy (cmd_args, cmd, PGSIZE);
-  file_name = strtok_r(cmd_args, " ", &save_ptr);
+  for (arg = strtok_r (cmd_copy, " ", &save_ptr); arg != NULL;
+       arg = strtok_r (NULL, " ", &save_ptr), argc++)
+    {
+      int next_arg_len = strlen (arg) + 1;
+
+      /* Verify each argument is less than 128 bytes, which is the
+         limit on what the pintos utility can pass to the kernel. */
+      if (next_arg_len > ARGLEN_MAX) 
+        {
+          palloc_free_page (cmd_copy);
+          palloc_free_page (cmd_args);
+          return TID_ERROR;
+        }
+      strlcpy (cmd_args + cmd_args_len, arg, next_arg_len);
+      cmd_args_len += next_arg_len;
+    }
 
   /* Create a new thread to execute CMD. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, cmd_copy);
-  palloc_free_page (cmd_args);
-  if (tid == TID_ERROR)
-      palloc_free_page (cmd_copy); 
+  tid = thread_create (cmd_args, PRI_DEFAULT, start_process, NULL);
+
+  /* Block on child's p_info semaphore until child has confirmed
+     successful load in call to start_process. Return -1 if failed. */
+  struct p_info *child_p_info = child_p_info_by_tid (tid);
+  sema_down (child_p_info->sema);
+  if (!child_p_info->load_succeeded || tid == TID_ERROR)
+    {
+      palloc_free_page (cmd_copy);
+      return TID_ERROR;
+    }
+  
+  palloc_free_page (cmd_copy);
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *cmd_name_)
+start_process (void *aux UNUSED)
 {
-  char *cmd_name = cmd_name_;
   struct intr_frame if_;
   bool success;
-
-  /* Make a copy of the name of the executable. */
-  char *cmd_copy;
-  char *file_name;
-  char *save_ptr;
-  cmd_copy = palloc_get_page (0);
-  strlcpy (cmd_copy, (char *)cmd_name, PGSIZE);
-  file_name = strtok_r (cmd_copy, " ", &save_ptr);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, cmd_name, &if_.eip, &if_.esp);
+
+  lock_acquire (&filesys_lock);
+  success = load (cmd_args, &if_.eip, &if_.esp);
+  lock_release (&filesys_lock);
+  palloc_free_page (cmd_args);
+
+  /* If load was successful, set load_succeeded to true. */
+  if (success)
+    thread_current ()->p_info->load_succeeded = true;
+  
+  /* Notify parent that load finished regardless of success/fail. */
+  sema_up (thread_current ()->p_info->sema);
 
   /* If load failed, quit. */
-  palloc_free_page (cmd_name);
-  palloc_free_page (cmd_copy);
   if (!success) 
     thread_exit ();
 
@@ -118,23 +150,42 @@ start_process (void *cmd_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t tid) 
 {
-  /* Temporarily changed to infinite loop for testing. */
-  while (true) {}
-  return -1;
+  struct p_info *child_p_info = child_p_info_by_tid (tid);
+
+  /* Already waited on child and freed struct. */
+  if (child_p_info == NULL) 
+    return -1;
+  
+  /* Down child's semaphore. Once unblocked, free p_info
+     struct and return exit status. If this process tries to
+     wait on same tid again, it will hit p_info == NULL and 
+     return -1 as intended. */
+  sema_down (child_p_info->sema);
+
+  int exit_status = child_p_info->exit_status;
+  list_remove (&child_p_info->elem);
+  free (child_p_info);
+  
+  return exit_status;
 }
 
 /* Free the current process's resources. */
 void
 process_exit (void)
 {
-  struct thread *cur = thread_current ();
+  struct thread *t = thread_current ();
   uint32_t *pd;
+
+  /* Closing executable allows writes again. */
+  lock_acquire (&filesys_lock);
+  file_close (t->executable);
+  lock_release (&filesys_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  pd = cur->pagedir;
+  pd = t->pagedir;
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
@@ -144,7 +195,7 @@ process_exit (void)
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
-      cur->pagedir = NULL;
+      t->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
@@ -229,19 +280,20 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, char *cmd_name);
+static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
-/* Loads an ELF executable from FILE_NAME into the current thread.
-   Sets up arguments on the stack using CMD_NAME.
+/* Loads an ELF executable which is the first
+   argument in CMD_ARGS into the current thread.
+   Sets up arguments on the stack using CMD_ARGS.
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, char *cmd_name, void (**eip) (void), void **esp)
+load (const char *cmd_args, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -257,12 +309,17 @@ load (const char *file_name, char *cmd_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (cmd_args);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", cmd_args);
       goto done; 
     }
+  
+  /* If valid executable to be run, deny writes and set
+     struct thread's executable field. */
+  file_deny_write (file);
+  t->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -273,7 +330,7 @@ load (const char *file_name, char *cmd_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", cmd_args);
       goto done; 
     }
 
@@ -337,7 +394,7 @@ load (const char *file_name, char *cmd_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, cmd_name))
+  if (!setup_stack (esp))
     goto done;
 
   /* Start address. */
@@ -347,7 +404,6 @@ load (const char *file_name, char *cmd_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
@@ -463,7 +519,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
    virtual memory and placing arguments on the stack according
    to the 80x86 calling convention. */
 static bool
-setup_stack (void **esp, char *cmd_name) 
+setup_stack (void **esp) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -474,30 +530,6 @@ setup_stack (void **esp, char *cmd_name)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         {
-          char *cmd_args;
-          char *arg;
-          char *save_ptr;
-          int argc = 0;
-          int cmd_args_len = 0;
-
-          /* Process CMD_NAME into arguments separated by single
-             null terminators (as opposed to arbitrary whitespace)
-             and store in CMD_ARGS. Obtain length of CMD_ARGS and
-             number of arguments (including the executable itself). */
-          cmd_args = palloc_get_page (0);
-          if (cmd_args == NULL) 
-            {
-              palloc_free_page (kpage);
-              return false;
-            }
-          for (arg = strtok_r (cmd_name, " ", &save_ptr); arg != NULL;
-               arg = strtok_r (NULL, " ", &save_ptr), argc++)
-            {
-              int next_arg_len = strlen (arg) + 1;
-              strlcpy (cmd_args + cmd_args_len, arg, next_arg_len);
-              cmd_args_len += next_arg_len;
-            }
-
           *esp = PHYS_BASE - 1;
           int arg_len[argc];
           int index = 0;
@@ -510,24 +542,13 @@ setup_stack (void **esp, char *cmd_name)
             {
               *((uint8_t *)*esp) = *cmd_char--;
               len++;
-              if (*cmd_char == 0 && cmd_char != cmd_name - 1)
+              if (*cmd_char == 0 && cmd_char != cmd_args - 1)
                 {
                   arg_len[index++] = len;
                   len = 0;
                 }
             }
           arg_len[index] = len;
-          palloc_free_page (cmd_args);
-
-          /* Verify each argument is less than 128 bytes, which is the
-             limit on what the pintos utility can pass to the kernel. */
-          for (int argnum = 0; argnum < argc; argnum++)
-            {
-              if (arg_len[argnum] > ARGLEN_MAX) {
-                palloc_free_page (kpage);
-                return false;
-              }
-            }
 
           /* Round stack pointer down to multiple of 4. */
           int word_align = (PTR_SIZE - cmd_args_len) % PTR_SIZE;
