@@ -115,7 +115,7 @@ struct thread
     int fd_counter;                   /* Counter for file descriptors. */
     struct list fd_list;              /* List of open file descriptors. */
     struct file *executable;          /* Reference to executable file. */
-    struct list child_p_info_list;    /* List of child p_info structs. */
+    struct list child_p_info_list;    /* List of children p_info structs. */
     struct p_info *p_info;            /* Reference to parent's p_info
                                          struct about this child. */
 #endif
@@ -126,19 +126,19 @@ struct thread
 
 /* Process info struct. Contains information necessary for
    parent and child to communicate with each other about child
-   load status and child exit status. */ 
+   process's load status and exit status. */ 
 struct p_info
   {
     tid_t tid;                        /* TID of child process. */
     int exit_status;                  /* Exit status of child. */
-    bool load_succeeded;              /* Indicator for child startup. */
+    bool load_succeeded;              /* Child process load result. */
     struct semaphore *sema;           /* Synchronization so parent waits
                                          properly for child. */
     struct list_elem elem;            /* List element. */
   };
 
 /* File descriptor entry. Contains the file descriptor and
-   a pointer to its associated file struct. */
+   a pointer to it's associated file struct. */
 struct fd_entry
   {
     int fd;                           /* Non-negative integer descriptor. */

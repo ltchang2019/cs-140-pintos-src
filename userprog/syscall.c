@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
-/* Mapping between process PIDs and thread TIDs. */
+/* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
 
 static void syscall_handler (struct intr_frame *);
@@ -32,8 +32,7 @@ static void syscall_seek (int fd, unsigned position);
 static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
 
-// keep in interrupt.c and import err lib to check?
-static uintptr_t read_frame (struct intr_frame *, int byte_offset);
+static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
 static struct file *fd_to_file (int fd);
 static void free_fd_list (void);
@@ -53,7 +52,7 @@ syscall_init (void)
 }
 
 /* Terminates the user program with -1 exit code if a user page 
-   fault occurred. */
+   fault occurred (e.g., trying to dereference NULL). */
 void
 exit_user_page_fault (void)
 {
@@ -156,12 +155,14 @@ syscall_handler (struct intr_frame *f)
       {
         int fd = (int)read_frame (f, 1);
         unsigned position = (unsigned)read_frame (f, 2);
+
         syscall_seek (fd, position);
         break;
       }
     case SYS_TELL:
       {
         int fd = (int)read_frame (f, 1);
+
         unsigned position = syscall_tell (fd);
         write_frame (f, position);
         break;
@@ -169,6 +170,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_CLOSE:
       {
         int fd = (int)read_frame (f, 1);
+
         syscall_close (fd);
         break;
       }
@@ -178,11 +180,11 @@ syscall_handler (struct intr_frame *f)
 }
 
 /* Checks address at intr_frame->esp + offset and returns value
-   as uintptr_t if valid. User must cast value to desired type. */
+   as uintptr_t if valid. Caller must cast value to desired type. */
 static uintptr_t
-read_frame (struct intr_frame *f, int byte_offset)
+read_frame (struct intr_frame *f, int arg_offset)
 {
-  void *addr = f->esp + PTR_SIZE * byte_offset;
+  void *addr = f->esp + PTR_SIZE * arg_offset;
   check_usr_ptr_range (addr, PTR_SIZE);
   return *(uintptr_t *)addr;
 }
@@ -195,13 +197,14 @@ write_frame (struct intr_frame *f, uintptr_t ret_value)
 }
 
 /* Returns a pointer to the file associated with FD in current
-   process's set of file descriptors, or NULL if none. */
+   process's set of open file descriptors, or NULL if none. */
 static struct file *
 fd_to_file (int fd)
 {
   struct file *file = NULL;
   struct thread *t = thread_current ();
   struct list_elem *fd_elem;
+
   for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
        fd_elem = list_next (fd_elem))
     {
@@ -212,16 +215,18 @@ fd_to_file (int fd)
           break;
         }
     }
+
   return file;
 }
 
-/* Closes all open file descriptors of a process and deallocate
+/* Closes all open file descriptors of a process and deallocates
    resources of process fd_list. */
 static void
 free_fd_list (void)
 {
   struct file *file;
   struct thread *t = thread_current ();
+
   while (!list_empty (&t->fd_list))
     {
       struct list_elem *fd_elem = list_pop_front (&t->fd_list);
@@ -235,12 +240,13 @@ free_fd_list (void)
     }
 }
 
-/* Traverse through current thread's child_p_info_list
-   and free all p_info structs. */
+/* Traverse through current thread's child_p_info_list and 
+   deallocate resources of all p_info structs. */
 static void
 free_child_p_info_list (void)
 {
   struct thread *t = thread_current ();
+
   while (!list_empty (&t->child_p_info_list))
     {
       struct list_elem *curr = list_pop_front (&t->child_p_info_list);
@@ -251,37 +257,31 @@ free_child_p_info_list (void)
     }
 }
 
+/* Validates user string. Checks that all characters in
+   string are at valid memory locations. */
 static void
 check_usr_str (const char *usr_ptr)
 {
   check_usr_ptr (usr_ptr);
+  char *curr = (char *)usr_ptr;
 
-  char *curr = (char *)usr_ptr + 1;
-  while (true)
-    {
-      check_usr_ptr (curr);
-      if (*curr == 0)
-        break;
-      
-      curr++;
-    }
+  while (*curr++ != 0)
+    check_usr_ptr (curr);
 }
 
 /* Validates user pointer. Checks that pointer is not NULL,
    is a valid user vaddr, and is mapped to physical memory.
-   Exits and terminates process if checks fail. */
+   Exits and terminates process if any of the checks fail. */
 static void 
 check_usr_ptr_range (const void *usr_ptr, int num_bytes)
 {
   for (int i = 0; i < num_bytes; i++)
-    {
-      check_usr_ptr ((char *)usr_ptr + i);
-    }
+    check_usr_ptr ((char *)usr_ptr + i);
 }
 
 /* Validates user pointer. Checks that pointer is not NULL,
    is a valid user vaddr, and is mapped to physical memory.
-   Exits and terminates process if checks fail. */
+   Exits and terminates process if any of the checks fail. */
 static void 
 check_usr_ptr (const void *usr_ptr)
 {
@@ -296,7 +296,7 @@ check_usr_ptr (const void *usr_ptr)
     syscall_exit (-1);
 }
 
-/* Terminate Pintos. */
+/* Halts the operating system and powers down the machine. */
 static void
 syscall_halt (void)
 {
@@ -311,7 +311,7 @@ syscall_exit (int status)
 {
   struct thread *t = thread_current ();
 
-  /* Free all process resources. */
+  /* Free all resources held by process. */
   free_fd_list ();
   free_child_p_info_list ();
   if (lock_held_by_current_thread (&filesys_lock))
@@ -326,9 +326,12 @@ syscall_exit (int status)
   }
 
   printf ("%s: exit(%d)\n", t->name, status);
-  thread_exit (); /* internally calls process_exit() */
+  thread_exit (); /* Internally calls process_exit(). */
 }
 
+/* Executes the user program stored in the executable specified by
+   the first argument in CMD_LINE. Returns the PID of the user process
+   if successful and -1 on failure. */
 static pid_t
 syscall_exec (const char *cmd_line)
 {
@@ -337,7 +340,7 @@ syscall_exec (const char *cmd_line)
 }
 
 /* Tries to get child p_info, down semaphore, and get/return exit status. 
-   Returns -1 if no child with given tid or if already waited on child. */
+   Returns -1 if no child with given TID or if already waited on child. */
 static int
 syscall_wait (tid_t tid)
 {
@@ -388,12 +391,17 @@ syscall_open (const char *file_name)
   return fd_entry->fd;
 }
 
-/* Returns the size, in bytes, of the file open as FD. */
+/* Returns the size, in bytes, of the file open as FD. Returns 0
+   if FD not associated with any open file. */
 static int
 syscall_filesize (int fd)
 {
+  struct file *open_file = fd_to_file (fd);
+  if (open_file == NULL)
+    return 0;
+
   lock_acquire (&filesys_lock);
-  int filesize = file_length (fd_to_file (fd));
+  int filesize = file_length (open_file);
   lock_release (&filesys_lock);
   return filesize;
 }
@@ -427,11 +435,12 @@ syscall_read (int fd, void *buf, unsigned size)
   if (fd == STDOUT_FILENO)
     return -1;
 
-  struct file *file = fd_to_file (fd);
-  if (file == NULL)
+  struct file *open_file = fd_to_file (fd);
+  if (open_file == NULL)
     return -1;
+
   lock_acquire (&filesys_lock);
-  bytes_read = file_read (file, buf, size);
+  bytes_read = file_read (open_file, buf, size);
   lock_release (&filesys_lock);
   return bytes_read;
 }
@@ -439,7 +448,8 @@ syscall_read (int fd, void *buf, unsigned size)
 /* Writes SIZE bytes from BUF to the file open as FD. Returns the
    number of bytes actually written, which may be less than SIZE if
    some bytes could not be written (e.g., write past end-of-file).
-   FD 1 writes to the console. */
+   FD 1 writes to the console. Returns 0 on error (e.g., no open
+   file associated with FD). */
 static int
 syscall_write (int fd, const void *buf, unsigned size)
 {
@@ -456,43 +466,54 @@ syscall_write (int fd, const void *buf, unsigned size)
   if (fd == STDIN_FILENO)
     return 0;
 
-  struct file *file = fd_to_file (fd);
-  if (file == NULL)
+  struct file *open_file = fd_to_file (fd);
+  if (open_file == NULL)
     return 0;
+
   lock_acquire (&filesys_lock);
-  bytes_written = file_write (file, buf, size);
+  bytes_written = file_write (open_file, buf, size);
   lock_release (&filesys_lock);
   return bytes_written;
 }
 
 /* Changes the next byte to be read or written in file open
    as FD to POSITION, expressed in bytes from the beginning
-   of the file. Returns without action if file not open. */
+   of the file. Returns without action if no open file is
+   associated with FD. */
 static void
 syscall_seek (int fd, unsigned position)
 {
+  struct file *open_file = fd_to_file (fd);
+  if (open_file == NULL)
+    return;
+
   lock_acquire (&filesys_lock);
-  file_seek (fd_to_file (fd), position);
+  file_seek (open_file, position);
   lock_release (&filesys_lock);
 }
 
 /* Returns the position of the next byte to be read or written
    in file open as FD, expressed in bytes from the beginning
-   of the file */
+   of the file. Returns 0 if no open file is associated with FD. */
 static unsigned
 syscall_tell (int fd)
 {
+  struct file *open_file = fd_to_file (fd);
+  if (open_file == NULL)
+    return 0;
+
   lock_acquire (&filesys_lock);
-  unsigned position = file_tell (fd_to_file (fd));
+  unsigned position = file_tell (open_file);
   lock_release (&filesys_lock);
   return position;
 }
 
-/* Close file descriptor FD for the current process. */
+/* Close file descriptor FD for the current process Returns without
+   action if no open file associated with FD. */
 static void
 syscall_close (int fd)
 {
-  struct file *file;
+  struct file *open_file;
   struct thread *t = thread_current ();
 
   /* Find the fd_entry corresponding to FD in fd_list of process. */
@@ -503,9 +524,9 @@ syscall_close (int fd)
       struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
       if (entry->fd == fd)
         {
-          file = entry->file;
+          open_file = entry->file;
           lock_acquire (&filesys_lock);
-          file_close (file);
+          file_close (open_file);
           lock_release (&filesys_lock);
           list_remove (fd_elem);
           free (entry);
