@@ -13,7 +13,6 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -101,7 +100,7 @@ cmp_priority (const struct list_elem *a, const struct list_elem *b,
 
 /* Searches through current thread's child_p_info_list for
    process info struct with matching TID. Returns struct if
-   found and NULL if otherwise. */
+   found and NULL otherwise. */
 struct p_info *
 child_p_info_by_tid (tid_t tid)
 {

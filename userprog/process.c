@@ -25,8 +25,8 @@
 /* Argument passing. 
 
    The command line is parsed into arguments separated by
-   null terminator characters. All leading whitespace
-   characters are discarded. */
+   null terminator characters. All whitespace characters
+   are discarded. */
 static char *cmd_args;         /* The parsed command line. */
 static int cmd_args_len;       /* Length of CMD_ARGS. */
 static int argc;               /* Argument count. */
@@ -167,7 +167,6 @@ process_wait (tid_t tid)
   int exit_status = child_p_info->exit_status;
   list_remove (&child_p_info->elem);
   free (child_p_info);
-  
   return exit_status;
 }
 
@@ -581,11 +580,6 @@ setup_stack (void **esp)
       else
         palloc_free_page (kpage);
     }
-
-  /* For debugging argument passing code. */
-  /* TODO: REMOVE WHEN ALL TESTS PASSING. */
-  // size_t size = PHYS_BASE - *esp;
-  // hex_dump ((uint32_t)(PHYS_BASE - size), *esp, size, true);
 
   return success;
 }
