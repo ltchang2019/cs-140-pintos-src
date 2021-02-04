@@ -22,9 +22,9 @@ static void syscall_halt (void);
 static void syscall_exit (int status);
 static pid_t syscall_exec (const char *cmd_line);
 static int syscall_wait (tid_t tid);
-static bool syscall_create (const char *file, unsigned initial_size);
-static bool syscall_remove (const char *file);
-static int syscall_open (const char *file);
+static bool syscall_create (const char *file_name, unsigned initial_size);
+static bool syscall_remove (const char *file_name);
+static int syscall_open (const char *file_name);
 static int syscall_filesize (int fd);
 static int syscall_read (int fd, void *buf, unsigned size);
 static int syscall_write (int fd, const void *buf, unsigned size);
@@ -40,8 +40,8 @@ static void free_fd_list (void);
 static void free_child_p_info_list (void);
 
 static void check_usr_str (const char *usr_ptr);
-static void check_usr_ptr_mult (const void *start_ptr, int num_bytes);
-static void check_usr_ptr (const void *usr_ptr); // extract to user err lib?
+static void check_usr_ptr_range (const void *start_ptr, int num_bytes);
+static void check_usr_ptr (const void *usr_ptr);
 
 /* Initializes the system call handler and lock for filesystem
    system calls. */
@@ -73,12 +73,15 @@ syscall_handler (struct intr_frame *f)
     case SYS_EXIT:
       {
         int status = (int)read_frame (f, 1);
+
         syscall_exit (status);
         break;
       }
     case SYS_EXEC:
       {
         const char *cmd_line = (const char *)read_frame (f, 1);
+        check_usr_str (cmd_line);
+
         pid_t pid = syscall_exec (cmd_line);
         write_frame (f, pid);
         break;
@@ -86,35 +89,43 @@ syscall_handler (struct intr_frame *f)
     case SYS_WAIT:
       {
         tid_t tid = (tid_t)read_frame (f, 1);
+
         int exit_status = syscall_wait (tid);
         write_frame (f, exit_status);
         break;
       }
     case SYS_CREATE:
       {
-        const char *file = (const char *)read_frame (f, 1);
+        const char *file_name = (const char *)read_frame (f, 1);
         unsigned initial_size = (unsigned)read_frame (f, 2);
-        bool create_succeeded = syscall_create (file, initial_size);
+        check_usr_str (file_name);
+
+        bool create_succeeded = syscall_create (file_name, initial_size);
         write_frame (f, create_succeeded);
         break;
       }
     case SYS_REMOVE:
       {
-        const char *file = (const char *)read_frame (f, 1);
-        bool remove_succeeded = syscall_remove (file);
+        const char *file_name = (const char *)read_frame (f, 1);
+        check_usr_str (file_name);
+
+        bool remove_succeeded = syscall_remove (file_name);
         write_frame (f, remove_succeeded);
         break;
       }
     case SYS_OPEN:
       {
-        const char *file = (const char *)read_frame (f, 1);
-        int fd = syscall_open (file);
+        const char *file_name = (const char *)read_frame (f, 1);
+        check_usr_str (file_name);
+
+        int fd = syscall_open (file_name);
         write_frame (f, fd);
         break;
       }
     case SYS_FILESIZE:
       {
         int fd = (int)read_frame (f, 1);
+
         int filesize = syscall_filesize (fd);
         write_frame (f, filesize);
         break;
@@ -124,6 +135,8 @@ syscall_handler (struct intr_frame *f)
         int fd = (int)read_frame (f, 1);
         void *buf = (void *)read_frame (f, 2);
         unsigned size = (unsigned)read_frame (f, 3);
+        check_usr_ptr ((char *)buf + size);
+
         int bytes_read = syscall_read (fd, buf, size);
         write_frame (f, bytes_read);
         break;
@@ -133,6 +146,8 @@ syscall_handler (struct intr_frame *f)
         int fd = (int)read_frame (f, 1);
         const void *buf = (const void *)read_frame (f, 2);
         unsigned size = (unsigned)read_frame (f, 3);
+        check_usr_ptr ((char *)buf + size);
+
         int bytes_written = syscall_write (fd, buf, size);
         write_frame (f, bytes_written);
         break;
@@ -168,7 +183,7 @@ static uintptr_t
 read_frame (struct intr_frame *f, int byte_offset)
 {
   void *addr = f->esp + PTR_SIZE * byte_offset;
-  check_usr_ptr_mult (addr, PTR_SIZE);
+  check_usr_ptr_range (addr, PTR_SIZE);
   return *(uintptr_t *)addr;
 }
 
@@ -244,7 +259,7 @@ check_usr_str (const char *usr_ptr)
   char *curr = (char *)usr_ptr + 1;
   while (true)
     {
-      check_usr_ptr(curr);
+      check_usr_ptr (curr);
       if (*curr == 0)
         break;
       
@@ -256,7 +271,7 @@ check_usr_str (const char *usr_ptr)
    is a valid user vaddr, and is mapped to physical memory.
    Exits and terminates process if checks fail. */
 static void 
-check_usr_ptr_mult (const void *usr_ptr, int num_bytes)
+check_usr_ptr_range (const void *usr_ptr, int num_bytes)
 {
   for (int i = 0; i < num_bytes; i++)
     {
@@ -311,14 +326,12 @@ syscall_exit (int status)
   }
 
   printf ("%s: exit(%d)\n", t->name, status);
-  thread_exit ();
+  thread_exit (); /* internally calls process_exit() */
 }
 
 static pid_t
 syscall_exec (const char *cmd_line)
 {
-  check_usr_str (cmd_line);
-
   pid_t pid = process_execute (cmd_line);
   return pid;
 }
@@ -334,12 +347,10 @@ syscall_wait (tid_t tid)
 /* Creates a new file called FILE initially INITIAL_SIZE bytes 
    in size. Returns true if successful, false otherwise. */
 static bool
-syscall_create (const char *file, unsigned initial_size)
+syscall_create (const char *file_name, unsigned initial_size)
 {
-  check_usr_str (file);
-
   lock_acquire (&filesys_lock);
-  bool create_succeeded = filesys_create (file, initial_size);
+  bool create_succeeded = filesys_create (file_name, initial_size);
   lock_release (&filesys_lock);
   return create_succeeded;
 }
@@ -348,10 +359,10 @@ syscall_create (const char *file, unsigned initial_size)
    false otherwise. A file may be removed regardless of whether it
    is open or closed, and removing an open file does not close it. */
 static bool
-syscall_remove (const char *file)
+syscall_remove (const char *file_name)
 {
   lock_acquire (&filesys_lock);
-  bool remove_succeeded = filesys_remove (file);
+  bool remove_succeeded = filesys_remove (file_name);
   lock_release (&filesys_lock);
   return remove_succeeded;
 }
@@ -359,12 +370,10 @@ syscall_remove (const char *file)
 /* Opens the file called FILE. Returns a nonnegative integer handle
    (the file descriptor), or -1 if the file could not be opened. */
 static int
-syscall_open (const char *file)
+syscall_open (const char *file_name)
 {
-  check_usr_str (file);
-
   lock_acquire (&filesys_lock);
-  struct file *open_file = filesys_open (file);
+  struct file *open_file = filesys_open (file_name);
   lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
@@ -396,8 +405,6 @@ syscall_filesize (int fd)
 static int
 syscall_read (int fd, void *buf, unsigned size)
 {
-  check_usr_ptr ((char *)buf + size);
-
   int bytes_read = 0;
 
   /* Read from the keyboard up to SIZE characters.
@@ -436,8 +443,6 @@ syscall_read (int fd, void *buf, unsigned size)
 static int
 syscall_write (int fd, const void *buf, unsigned size)
 {
-  check_usr_ptr ((char *)buf + size);
-
   int bytes_written;
 
   /* Write to the console. */
