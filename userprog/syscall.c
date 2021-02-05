@@ -134,6 +134,7 @@ syscall_handler (struct intr_frame *f)
         int fd = (int)read_frame (f, 1);
         void *buf = (void *)read_frame (f, 2);
         unsigned size = (unsigned)read_frame (f, 3);
+        check_usr_ptr (buf);
         check_usr_ptr ((char *)buf + size);
 
         int bytes_read = syscall_read (fd, buf, size);
@@ -145,6 +146,7 @@ syscall_handler (struct intr_frame *f)
         int fd = (int)read_frame (f, 1);
         const void *buf = (const void *)read_frame (f, 2);
         unsigned size = (unsigned)read_frame (f, 3);
+        check_usr_ptr (buf);
         check_usr_ptr ((char *)buf + size);
 
         int bytes_written = syscall_write (fd, buf, size);
