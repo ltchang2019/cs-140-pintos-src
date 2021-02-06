@@ -83,6 +83,18 @@ process_execute (const char *cmd)
       cmd_args_len += next_arg_len;
     }
 
+  /* Check that the stack page will not overflow from putting
+     arguments onto the stack according to the 80x86 calling
+     convention. The value 4 makes room for the null pointer
+     sentinel, argv, argc, and the return address. */
+  int bytes_total = cmd_args_len + PTR_SIZE * (argc + 4); 
+  if (bytes_total > PGSIZE)
+    {
+      palloc_free_page (cmd_copy);
+      palloc_free_page (cmd_args);
+      return TID_ERROR;
+    }
+
   /* Create a new thread to execute CMD. */
   tid = thread_create (cmd_args, PRI_DEFAULT, start_process, NULL);
 
