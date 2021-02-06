@@ -39,7 +39,7 @@ static void free_fd_list (void);
 static void free_child_p_info_list (void);
 
 static void check_usr_str (const char *usr_ptr);
-static void check_usr_ptr_range (const void *start_ptr, int num_bytes);
+static void check_usr_addr (const void *start_ptr, int num_bytes);
 static void check_usr_ptr (const void *usr_ptr);
 
 /* Initializes the system call handler and lock for filesystem
@@ -185,7 +185,7 @@ static uintptr_t
 read_frame (struct intr_frame *f, int arg_offset)
 {
   void *addr = f->esp + PTR_SIZE * arg_offset;
-  check_usr_ptr_range (addr, PTR_SIZE);
+  check_usr_addr (addr, PTR_SIZE);
   return *(uintptr_t *)addr;
 }
 
@@ -273,7 +273,7 @@ check_usr_str (const char *usr_ptr)
    is a valid user vaddr, and is mapped to physical memory.
    Exits and terminates process if any of the checks fail. */
 static void 
-check_usr_ptr_range (const void *usr_ptr, int num_bytes)
+check_usr_addr (const void *usr_ptr, int num_bytes)
 {
   for (int i = 0; i < num_bytes; i++)
     check_usr_ptr ((char *)usr_ptr + i);
