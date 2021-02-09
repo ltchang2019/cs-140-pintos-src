@@ -322,10 +322,10 @@ syscall_exit (int status)
   /* If parent still running, set exit status and 
      signal to parent with sema_up. */
   if (t->p_info != NULL)
-  {
-    t->p_info->exit_status = status;
-    sema_up (t->p_info->sema);
-  }
+    {
+      t->p_info->exit_status = status;
+      sema_up (t->p_info->sema);
+    }
 
   printf ("%s: exit(%d)\n", t->name, status);
   thread_exit (); /* Internally calls process_exit(). */

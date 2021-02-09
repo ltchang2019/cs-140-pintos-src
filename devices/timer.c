@@ -218,10 +218,10 @@ check_sleeping_threads (void)
       front_sleeping = list_entry (front_elem, struct sleeping_thread, elem);
     
       if (front_sleeping->wake_time <= ticks)
-      {
-        list_pop_front (&sleeping_threads_list);
-        thread_wake (front_sleeping->thread);
-      } 
+        {
+          list_pop_front (&sleeping_threads_list);
+          thread_wake (front_sleeping->thread);
+        } 
       else
         break;
     }

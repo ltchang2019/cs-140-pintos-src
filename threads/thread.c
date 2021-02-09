@@ -407,11 +407,11 @@ static void
 thread_check_preempt (void)
 {
   if (!ready_queue_empty (&ready_queue))
-  {
-    struct thread *ready_thread = ready_queue_front (&ready_queue);
-    if (ready_thread->curr_priority > thread_current ()->curr_priority)
-      thread_yield ();
-  }
+    {
+      struct thread *ready_thread = ready_queue_front (&ready_queue);
+      if (ready_thread->curr_priority > thread_current ()->curr_priority)
+        thread_yield ();
+    }
 }
 
 /* Puts a sleeping thread that was just woken up into the ready queue. */
@@ -473,10 +473,10 @@ thread_set_donated_priority (struct thread *t, int priority)
 {
   t->curr_priority = priority;
   if (t->status == THREAD_READY)
-  {
-    ready_queue_remove (&ready_queue, t);
-    ready_queue_insert (&ready_queue, t);
-  }
+    {
+      ready_queue_remove (&ready_queue, t);
+      ready_queue_insert (&ready_queue, t);
+    }
 }
 
 /* Returns the current thread's priority. */
@@ -497,11 +497,11 @@ mlfqs_tick (int64_t ticks)
   /* Update system load average and recent_cpu of each thread
      once per second. */
   if (ticks % TIMER_FREQ == 0)
-  {
-    calc_load_avg ();
-    fixed32_t coeff = load_avg_coeff ();
-    thread_foreach (calc_recent_cpu, &coeff);
-  }
+    {
+      calc_load_avg ();
+      fixed32_t coeff = load_avg_coeff ();
+      thread_foreach (calc_recent_cpu, &coeff);
+    }
 
   /* Update priority of each thread once every fourth tick. */
   if (ticks % TIME_SLICE == 0)
@@ -700,17 +700,17 @@ init_thread (struct thread *t, const char *name, int priority,
      and num_donations is ignored since it is only relevant
      for priority donations. */
   if (!thread_mlfqs)
-  {
-    t->owned_priority = priority;
-    t->curr_priority = priority;
-    t->num_donations = 0;
-  }
+    {
+      t->owned_priority = priority;
+      t->curr_priority = priority;
+      t->num_donations = 0;
+    }
   else
-  {
-    t->nice = nice;
-    t->recent_cpu = recent_cpu;
-    calc_priority (t, NULL);
-  }
+    {
+      t->nice = nice;
+      t->recent_cpu = recent_cpu;
+      calc_priority (t, NULL);
+    }
   t->desired_lock = NULL;
   list_init (&t->held_locks);
   t->magic = THREAD_MAGIC;
