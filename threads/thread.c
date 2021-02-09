@@ -85,7 +85,9 @@ void thread_schedule_tail (struct thread *prev);
 static void thread_check_preempt (void);
 static tid_t allocate_tid (void);
 
+#ifdef USERPROG
 static void init_p_info (struct thread *t);
+#endif
 
 /* Comparison function for ready queue of threads ready to run.
    Compares by priority and sorts in descending order. */
@@ -98,6 +100,7 @@ cmp_priority (const struct list_elem *a, const struct list_elem *b,
   return a_pri > b_pri;
 }
 
+#ifdef USERPROG
 /* Searches through current thread's child_p_info_list for
    process info struct with matching TID. Returns struct if
    found and NULL otherwise. */
@@ -134,6 +137,7 @@ init_p_info (struct thread *t)
   if (t != initial_thread)
     list_push_back (&thread_current ()->child_p_info_list, &p_info->elem);
 }
+#endif
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
