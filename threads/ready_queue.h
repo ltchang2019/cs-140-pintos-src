@@ -9,10 +9,10 @@
 #define NUM_QUEUES (PRI_MAX - PRI_MIN + 1)
 
 struct ready_queue 
-{
+  {
     int num_elems;
     struct list queues[NUM_QUEUES];
-};
+  };
 
 void ready_queue_init (struct ready_queue *);
 
