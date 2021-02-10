@@ -113,11 +113,11 @@ timer_sleep (int64_t ticks)
 
 /* Comparison function for sleeping_threads list. Compares by wake_time. */
 static bool 
-cmp_sleeping_threads (const struct list_elem *a,
-                     const struct list_elem *b,
-                     void *aux UNUSED) {
-    int64_t a_wake = list_entry (a, struct sleeping_thread, elem)->wake_time;
-    int64_t b_wake = list_entry (b, struct sleeping_thread, elem)->wake_time;
+cmp_sleeping_threads (const struct list_elem *a, const struct list_elem *b,
+                      void *aux UNUSED)
+{
+  int64_t a_wake = list_entry (a, struct sleeping_thread, elem)->wake_time;
+  int64_t b_wake = list_entry (b, struct sleeping_thread, elem)->wake_time;
   return a_wake < b_wake;
 }
 

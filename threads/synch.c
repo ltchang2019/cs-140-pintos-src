@@ -72,7 +72,7 @@ thread_sema_pair_init (struct thread_sema_pair *thread_sema_pair)
    semaphore. Sorts in descending order. */
 bool
 cmp_thread_sema_pair (const struct list_elem *a, const struct list_elem *b,
-               void *aux UNUSED)
+                      void *aux UNUSED)
 {
   int a_pri = list_entry (a, struct thread_sema_pair, elem)
                           ->waiting_thread->curr_priority;
@@ -351,8 +351,8 @@ lock_release (struct lock *lock)
           else 
             {
               struct list_elem *lock_elem = list_front (&t->held_locks);
-              struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
-              t->curr_priority = next_lock->donated_priority;
+              struct lock *next = list_entry (lock_elem, struct lock, elem);
+              t->curr_priority = next->donated_priority;
             }
         }
     }
@@ -418,7 +418,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   thread_sema_pair_init (&waiter);
-  list_insert_ordered (&cond->waiters, &waiter.elem, cmp_thread_sema_pair, NULL);
+  list_insert_ordered (&cond->waiters, &waiter.elem,
+                       cmp_thread_sema_pair, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);

@@ -598,7 +598,7 @@ setup_stack (void **esp)
           for (char *cmd_char = cmd_args + cmd_args_len - 1;
                cmd_char != cmd_args - 1; (*esp)--)
             {
-              *((uint8_t *)*esp) = *cmd_char--;
+              *((uint8_t *) *esp) = *cmd_char--;
               len++;
               if (*cmd_char == 0 && cmd_char != cmd_args - 1)
                 {
@@ -611,30 +611,30 @@ setup_stack (void **esp)
           /* Round stack pointer down to multiple of 4. */
           int word_align = (PTR_SIZE - cmd_args_len) % PTR_SIZE;
           for (int i = 0; i < word_align; i++, (*esp)--) 
-              *((uint8_t *)*esp) = 0;
+            *((uint8_t *) *esp) = 0;
           (*esp) -= PTR_SIZE - 1;
 
           /* Push null pointer sentinel to ensure that argv[argc]
              is a null pointer, as required by the C standard. */
-          *((uintptr_t *)*esp) = 0;
+          *((uintptr_t *) *esp) = 0;
           (*esp) -= PTR_SIZE;
 
           /* Push address of each argument string. */
           void *start = PHYS_BASE;
           for (int argnum = 0; argnum < argc; argnum++) 
             {
-              *((uintptr_t *)*esp) = (uintptr_t)(start - arg_len[argnum]);
+              *((uintptr_t *) *esp) = (uintptr_t) (start - arg_len[argnum]);
               (*esp) -= PTR_SIZE;
               start -= arg_len[argnum];
             }
 
           /* Push argv (address of argv[0]), argc, and a "return address",
              in that order, to complete the stack. */
-          *((uintptr_t *)*esp) = (uintptr_t)(*esp + PTR_SIZE);
+          *((uintptr_t *) *esp) = (uintptr_t) (*esp + PTR_SIZE);
           (*esp) -= PTR_SIZE;
-          *((uintptr_t *)*esp) = argc;
+          *((uintptr_t *) *esp) = argc;
           (*esp) -= PTR_SIZE;
-          *((uintptr_t *)*esp) = 0;
+          *((uintptr_t *) *esp) = 0;
         }
       else
         palloc_free_page (kpage);

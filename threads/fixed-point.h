@@ -30,23 +30,23 @@ typedef int32_t fixed32_t;
 /* Addition and subtraction operations. */
 static inline void detect_add_overflow (int a, int b, int sum) {
   if (a > 0 && b > 0)
-  {
-    ASSERT (sum > a && sum > b);
-  }
+    {
+      ASSERT (sum > a && sum > b);
+    }
   if (a < 0 && b < 0)
-  {
-    ASSERT (sum < a && sum < b);
-  }
+    {
+      ASSERT (sum < a && sum < b);
+    }
 }
 static inline void detect_sub_overflow (int a, int b, int difference) {
   if (a > 0 && b < 0)
-  {
-    ASSERT (difference > a && difference > b);
-  }
+    {
+      ASSERT (difference > a && difference > b);
+    }
   if (a < 0 && b > 0)
-  {
-    ASSERT (difference < a && difference < b);
-  }
+    {
+      ASSERT (difference < a && difference < b);
+    }
 }
 static inline fixed32_t add_fixed_fixed (fixed32_t x, fixed32_t y) {
   detect_add_overflow (x, y, x + y);
@@ -68,13 +68,13 @@ static inline fixed32_t sub_fixed_int (fixed32_t x, int n) {
 /* Multiplication and division operations. */
 static inline void detect_mul_div_overflow (int a, int b, int result) {
   if ((a > 0 && b > 0) || (a < 0 && b < 0))
-  {
-    ASSERT (result >= 0);
-  }
+    {
+      ASSERT (result >= 0);
+    }
   if ((a > 0 && b < 0) || (a < 0 && b > 0)) 
-  {
-    ASSERT (result <= 0);
-  }
+    {
+      ASSERT (result <= 0);
+    }
 }
 static inline fixed32_t mul_fixed_fixed (fixed32_t x, fixed32_t y) {
   detect_mul_div_overflow (x, y, ((int64_t) x) * y / FIXED32_CONST);
