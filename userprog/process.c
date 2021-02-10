@@ -34,6 +34,47 @@ static int argc;               /* Argument count. */
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmd_args, void (**eip) (void), void **esp);
 
+static void free_fd_list (void);
+static void free_child_p_info_list (void);
+
+/* Closes all open file descriptors of a process and deallocates
+   resources of process fd_list. */
+static void
+free_fd_list (void)
+{
+  struct file *file;
+  struct thread *t = thread_current ();
+
+  while (!list_empty (&t->fd_list))
+    {
+      struct list_elem *fd_elem = list_pop_front (&t->fd_list);
+      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
+      file = entry->file;
+      lock_acquire (&filesys_lock);
+      file_close (file);
+      lock_release (&filesys_lock);
+      list_remove (fd_elem);
+      free (entry);
+    }
+}
+
+/* Traverse through current thread's child_p_info_list and 
+   deallocate resources of all p_info structs. */
+static void
+free_child_p_info_list (void)
+{
+  struct thread *t = thread_current ();
+
+  while (!list_empty (&t->child_p_info_list))
+    {
+      struct list_elem *curr = list_pop_front (&t->child_p_info_list);
+      struct p_info *p_info = list_entry (curr, struct p_info, elem);
+      list_remove (curr);
+      free (p_info->sema);
+      free (p_info);
+    }
+}
+
 /* Starts a new thread running a user program loaded from the 
    file that is the first argument in CMD. The new thread may
    be scheduled (and may even exit) before process_execute()
@@ -188,6 +229,12 @@ process_exit (void)
 {
   struct thread *t = thread_current ();
   uint32_t *pd;
+
+  /* Free all resources held by process. */
+  free_fd_list ();
+  free_child_p_info_list ();
+  if (lock_held_by_current_thread (&filesys_lock))
+    lock_release (&filesys_lock);
 
   /* Closing executable allows writes again. */
   lock_acquire (&filesys_lock);

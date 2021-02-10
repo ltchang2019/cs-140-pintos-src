@@ -148,11 +148,11 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   sema->value++;
   if (!list_empty (&sema->waiters)) 
-  {
-    list_sort (&sema->waiters, cmp_priority, NULL);
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
-  }
+    {
+      list_sort (&sema->waiters, cmp_priority, NULL);
+      thread_unblock (list_entry (list_pop_front (&sema->waiters),
+                                  struct thread, elem));
+    }
   intr_set_level (old_level);
 }
 
@@ -241,24 +241,24 @@ lock_acquire (struct lock *lock)
   enum intr_level old_level = intr_disable ();
 
   if (lock->holder != NULL)
-  {
-    thread_current ()->desired_lock = lock;
-    
-    /* Priority donation disabled for advanced scheduler. */
-    if (!thread_mlfqs)
     {
-      int acq_priority = thread_current ()->curr_priority;
-      if (acq_priority > lock->holder->curr_priority) 
-      {
-        /* Reassign lock to avoid compiler optimizing out while loop. */
-        struct lock *curr_lock = lock; 
-        while (curr_lock != NULL)
-          {
-            donate_priority (curr_lock, acq_priority); 
-            curr_lock = curr_lock->holder->desired_lock;
-          }
-      }
-    }
+      thread_current ()->desired_lock = lock;
+      
+      /* Priority donation disabled for advanced scheduler. */
+      if (!thread_mlfqs)
+        {
+          int acq_priority = thread_current ()->curr_priority;
+          if (acq_priority > lock->holder->curr_priority) 
+            {
+              /* Reassign lock to avoid compiler optimizing out while loop. */
+              struct lock *curr_lock = lock; 
+              while (curr_lock != NULL)
+                {
+                  donate_priority (curr_lock, acq_priority); 
+                  curr_lock = curr_lock->holder->desired_lock;
+                }
+            }
+        }
   }
 
   /* Blocks thread if priority was donated. */
@@ -342,20 +342,20 @@ lock_release (struct lock *lock)
      based on whether there are other donations or not. Disabled
      for the multi-level feedback queue scheduler. */
   if (!thread_mlfqs)
-  {
-    if (t->num_donations > 0 && lock->donated_priority != NO_DONATIONS_PRI)
     {
-      t->num_donations--;
-      if (t->num_donations == 0) 
-        t->curr_priority = t->owned_priority;
-      else 
-      {
-        struct list_elem *lock_elem = list_front (&t->held_locks);
-        struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
-        t->curr_priority = next_lock->donated_priority;
-      }
+      if (t->num_donations > 0 && lock->donated_priority != NO_DONATIONS_PRI)
+        {
+          t->num_donations--;
+          if (t->num_donations == 0) 
+            t->curr_priority = t->owned_priority;
+          else 
+            {
+              struct list_elem *lock_elem = list_front (&t->held_locks);
+              struct lock *next_lock = list_entry (lock_elem, struct lock, elem);
+              t->curr_priority = next_lock->donated_priority;
+            }
+        }
     }
-  }
 
   /* Signal the waiting thread of highest priority that lock is available. */
   lock->holder = NULL;
@@ -440,11 +440,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) 
-  {
-    list_sort (&cond->waiters, cmp_thread_sema_pair, NULL);
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct thread_sema_pair, elem)->semaphore);
-  }
+    {
+      list_sort (&cond->waiters, cmp_thread_sema_pair, NULL);
+      sema_up (&list_entry (list_pop_front (&cond->waiters),
+                            struct thread_sema_pair, elem)->semaphore);
+    }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
