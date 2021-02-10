@@ -35,8 +35,6 @@ static void syscall_close (int fd);
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
 static struct file *fd_to_file (int fd);
-static void free_fd_list (void);
-static void free_child_p_info_list (void);
 
 static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
@@ -221,44 +219,6 @@ fd_to_file (int fd)
   return file;
 }
 
-/* Closes all open file descriptors of a process and deallocates
-   resources of process fd_list. */
-static void
-free_fd_list (void)
-{
-  struct file *file;
-  struct thread *t = thread_current ();
-
-  while (!list_empty (&t->fd_list))
-    {
-      struct list_elem *fd_elem = list_pop_front (&t->fd_list);
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      file = entry->file;
-      lock_acquire (&filesys_lock);
-      file_close (file);
-      lock_release (&filesys_lock);
-      list_remove (fd_elem);
-      free (entry);
-    }
-}
-
-/* Traverse through current thread's child_p_info_list and 
-   deallocate resources of all p_info structs. */
-static void
-free_child_p_info_list (void)
-{
-  struct thread *t = thread_current ();
-
-  while (!list_empty (&t->child_p_info_list))
-    {
-      struct list_elem *curr = list_pop_front (&t->child_p_info_list);
-      struct p_info *p_info = list_entry (curr, struct p_info, elem);
-      list_remove (curr);
-      free (p_info->sema);
-      free (p_info);
-    }
-}
-
 /* Validates user string. Checks that all characters in
    string are at valid memory locations. */
 static void
@@ -305,32 +265,6 @@ syscall_halt (void)
   shutdown_power_off ();
 }
 
-/* Set's p_info exit_status to status and ups semaphore for parent 
-   if parent still running (i.e. p_info not NULL). Frees all child
-   p_info structs, closes fds, and prints process termination message. */
-static void 
-syscall_exit (int status)
-{
-  struct thread *t = thread_current ();
-
-  /* Free all resources held by process. */
-  free_fd_list ();
-  free_child_p_info_list ();
-  if (lock_held_by_current_thread (&filesys_lock))
-    lock_release (&filesys_lock);
-
-  /* If parent still running, set exit status and 
-     signal to parent with sema_up. */
-  if (t->p_info != NULL)
-    {
-      t->p_info->exit_status = status;
-      sema_up (t->p_info->sema);
-    }
-
-  printf ("%s: exit(%d)\n", t->name, status);
-  thread_exit (); /* Internally calls process_exit(). */
-}
-
 /* Executes the user program stored in the executable specified by
    the first argument in CMD_LINE. Returns the PID of the user process
    if successful and -1 on failure. */
@@ -347,6 +281,28 @@ static int
 syscall_wait (tid_t tid)
 {
   return process_wait (tid);
+}
+
+/* Set's p_info exit_status to status and ups semaphore for parent 
+   if parent still running (i.e. p_info not NULL). Frees all child
+   p_info structs, closes fds, and prints process termination message. */
+static void 
+syscall_exit (int status)
+{
+  struct thread *t = thread_current ();
+
+  /* If parent still running, set exit status and 
+     signal to parent with sema_up. */
+  if (t->p_info != NULL)
+    {
+      t->p_info->exit_status = status;
+      sema_up (t->p_info->sema);
+    }
+
+  printf ("%s: exit(%d)\n", t->name, status);
+
+  /* Internally calls process_exit() and cleans up memory. */
+  thread_exit (); 
 }
 
 /* Creates a new file called FILE initially INITIAL_SIZE bytes 
