@@ -1,8 +1,11 @@
 #include <debug.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
+#include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
 
@@ -53,16 +56,43 @@ frame_table_init (size_t num_frames)
 }
 
 /* Obtain a page from the user pool and store in the next
-   available frame. */
+   available frame. Depending on the fields in the supplemental
+   page table entry for the page, fill the page with the
+   appropriate data. Return NULL if unsuccessful. */
 void *
-frame_alloc_page (enum palloc_flags flags)
+frame_alloc_page (enum palloc_flags flags, struct spte *spte)
 {
   ASSERT (flags & PAL_USER);
 
+  /* Get a page of memory. */
   void *page_kaddr = palloc_get_page (flags);
+  if (page_kaddr == NULL)
+    return NULL;
+
+  /* Get index to available frame and set fields in frame. */
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
   f->page_kaddr = page_kaddr;
-  //f->spte = spte;
+  f->spte = spte;
+
+  /* Load data into the page depending on it's location. */
+  if (spte->loc == ZERO)
+      memset (page_kaddr, 0, PGSIZE);
+  else if (spte->loc == DISK)
+    {
+      /* Read the non-zero bytes of the page and zero the rest. */
+      size_t num_bytes = spte->page_bytes;
+      lock_acquire (&filesys_lock);
+      off_t bytes_read = file_read_at (spte->file, page_kaddr,
+                                       num_bytes, spte->ofs);
+      lock_release (&filesys_lock);
+      
+      if (bytes_read != (int) num_bytes)
+        {
+          palloc_free_page (page_kaddr);
+          return NULL;
+        }
+      memset (page_kaddr + num_bytes, 0, PGSIZE - num_bytes);
+    }
 
   return page_kaddr;
 }
@@ -74,7 +104,7 @@ frame_free_page (void *page_kaddr)
 {
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
   f->page_kaddr = NULL;
-  //f->spte = NULL;
+  f->spte = NULL;
 
   palloc_free_page (page_kaddr);
 }

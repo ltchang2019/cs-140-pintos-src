@@ -7,9 +7,12 @@
 #include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
+#include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/frame.h"
+#include "vm/page.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 
@@ -252,9 +255,22 @@ check_usr_ptr (const void *usr_ptr)
   if (!is_user_vaddr (usr_ptr))
     syscall_exit (-1);
   
+  /* Bring in page if not present in user memory. */
   uintptr_t *pd = thread_current ()->pagedir;
-  if (pagedir_get_page (pd, usr_ptr) == NULL)
-    syscall_exit (-1);
+  uint8_t *upage = pg_round_down (usr_ptr);
+  if (pagedir_get_page (pd, upage) == NULL) 
+    {
+      struct spte* spte = spte_lookup (upage);
+      if (spte != NULL)
+        {
+          uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
+          bool success = pagedir_set_page (pd, upage, kpage, spte->writable);
+          if (!success)
+            syscall_exit (-1);
+        }
+      else
+        syscall_exit (-1);
+    }
 }
 
 /* Halts the operating system and powers down the machine. */

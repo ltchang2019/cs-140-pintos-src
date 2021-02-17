@@ -121,6 +121,7 @@ struct thread
                                          struct about this child. */
 #endif
 
+    /* Project 3 additions. */
 #ifdef VM
     struct hash spt;                  /* Supplemental page table. */
 #endif

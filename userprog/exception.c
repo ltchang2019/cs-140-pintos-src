@@ -4,7 +4,13 @@
 #include "userprog/gdt.h"
 #include "userprog/syscall.h"
 #include "threads/interrupt.h"
+#include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "vm/frame.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -149,18 +155,42 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* Terminate process with -1 exit code if caused by user. */
-  if (user)
-    exit_error (-1);
+  /* Look for fault_addr in supplemental page table of process. */
+  if (user && not_present)
+    {
+      uint8_t *upage = pg_round_down (fault_addr);
+      struct spte* spte = spte_lookup (upage);
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+      if (spte != NULL)
+        {
+          /* Get a frame to place page in and install the page in
+             the page directory of faulting process. */
+          uintptr_t *pd = thread_current ()->pagedir;
+          uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
+          bool writable = spte->writable;
+          if (pagedir_get_page (pd, upage) == NULL)
+            {
+              bool success = pagedir_set_page (pd, upage, kpage, writable);
+              if (!success)
+                exit_error (-1);
+
+              return;
+            }
+        }
+    }
+  
+  /* Page fault was an invalid user access. Terminate the process. */
+  (void) write;
+  exit_error (-1);
+
+//   /* To implement virtual memory, delete the rest of the function
+//      body, and replace it with code that brings in the page to
+//      which fault_addr refers. */
+//   printf ("Page fault at %p: %s error %s page in %s context.\n",
+//           fault_addr,
+//           not_present ? "not present" : "rights violation",
+//           write ? "writing" : "reading",
+//           user ? "user" : "kernel");
+//   kill (f);
 }
 

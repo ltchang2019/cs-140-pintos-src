@@ -13,7 +13,7 @@ struct frame_entry
   };
 
 void frame_table_init (size_t num_frames);
-void *frame_alloc_page (enum palloc_flags flags);
+void *frame_alloc_page (enum palloc_flags flags, struct spte *spte);
 void frame_free_page (void *page_kaddr);
 
 #endif /* vm/frame.h */
