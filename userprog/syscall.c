@@ -49,10 +49,9 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-/* Terminates the user program with -1 exit code if a user page 
-   fault occurred (e.g., trying to dereference NULL). */
+/* Terminates the user program with exit code STATUS. */
 void
-exit (int status)
+exit_error (int status)
 {
   syscall_exit (status);
 }
