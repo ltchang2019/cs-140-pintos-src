@@ -11,7 +11,7 @@ static unsigned
 spte_hash_func (const struct hash_elem *e, void *aux UNUSED)
 {
     struct spte *spte = hash_entry (e, struct spte, elem);
-    return (unsigned) hash_int (spte->id);
+    return (unsigned) hash_bytes (spte->page_addr, sizeof (void *));
 }
 
 bool spte_less_func (const struct hash_elem *a, 
@@ -20,7 +20,7 @@ bool spte_less_func (const struct hash_elem *a,
 {
     struct spte *spte_a = hash_entry(a, struct spte, elem);
     struct spte *spte_b = hash_entry(b, struct spte, elem);
-    return spte_a->id < spte_b->id;
+    return spte_a->page_addr < spte_b->page_addr;
 }
 
 void 
@@ -34,10 +34,10 @@ spt_init (struct hash *hash_table)
 }
 
 struct spte 
-*spte_create (int id, location loc, struct file* file, off_t offset)
+*spte_create (void *page_addr, location loc, struct file *file, off_t offset)
 {
     struct spte *spte = malloc (sizeof (struct spte));
-    spte->id = id;
+    spte->page_addr = page_addr;
     spte->loc = loc;
     spte->file = file;
     spte->offset = offset;

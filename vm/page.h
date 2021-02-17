@@ -14,7 +14,7 @@ typedef enum
 
 struct spte
   {
-    int id;
+    void *page_addr;
     location loc;
     struct file *file;
     off_t offset;
@@ -27,7 +27,7 @@ void spt_delete (struct hash *spt, struct hash_elem *he);
 void spt_free_table (struct hash *spt);
 
 void spte_free (struct hash_elem *he, void *aux UNUSED);
-struct spte *spte_create (int id, 
+struct spte *spte_create (void *page_addr, 
                           location loc, 
                           struct file* file, 
                           off_t offset);
