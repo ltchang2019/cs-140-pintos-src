@@ -5,22 +5,31 @@
 #include <hash.h>
 #include "filesys/file.h"
 
-enum location 
+typedef enum 
   {
     SWAP,
     DISK,
     ZERO
-  };
+  } location;
 
 struct spte
   {
     int id;
-    enum location loc;
+    location loc;
     struct file *file;
     off_t offset;
     struct hash_elem elem;
   };
 
-void init_spt (struct hash *hash_table);
+void spt_init (struct hash *hash_table);
+void spt_insert (struct hash *spt, struct hash_elem *he);
+void spt_delete (struct hash *spt, struct hash_elem *he);
+void spt_free_table (struct hash *spt);
+
+void spte_free (struct hash_elem *he, void *aux UNUSED);
+struct spte *spte_create (int id, 
+                          location loc, 
+                          struct file* file, 
+                          off_t offset);
 
 #endif /* vm/page.h */
