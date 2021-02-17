@@ -52,9 +52,9 @@ syscall_init (void)
 /* Terminates the user program with -1 exit code if a user page 
    fault occurred (e.g., trying to dereference NULL). */
 void
-exit_user_page_fault (void)
+exit (int status)
 {
-  syscall_exit (-1);
+  syscall_exit (status);
 }
 
 /* Dispatch to appropriate system call based on syscall number

@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
 
@@ -118,6 +119,10 @@ struct thread
     struct list child_p_info_list;    /* List of children p_info structs. */
     struct p_info *p_info;            /* Reference to parent's p_info
                                          struct about this child. */
+#endif
+
+#ifdef VM
+    struct hash spt;                  /* Supplemental page table. */
 #endif
 
     /* Owned by thread.c. */

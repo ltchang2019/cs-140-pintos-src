@@ -19,6 +19,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
@@ -176,6 +177,7 @@ start_process (void *aux UNUSED)
   /* If load was successful, set load_succeeded to true. */
   if (success)
     thread_current ()->p_info->load_succeeded = true;
+    init_spt (&thread_current ()->spt);
   
   /* Notify parent that load finished regardless of success/fail. */
   sema_up (thread_current ()->p_info->sema);
