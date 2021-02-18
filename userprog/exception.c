@@ -206,13 +206,14 @@ page_fault (struct intr_frame *f)
           uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
           if (kpage == NULL)
             exit_error (-1);
+
           if (pagedir_get_page (pd, upage) == NULL)
             {
               bool success = pagedir_set_page (pd, upage, kpage, writable);
               if (!success)
                 exit_error (-1);
             }
-          
+
           return;
         }
     }
