@@ -191,7 +191,7 @@ page_fault (struct intr_frame *f)
            if (esp_ofs == PUSH_OFS || esp_ofs== PUSHA_OFS
                || fault_addr >= f->esp)
              {
-               spte = spte_create (upage, SWAP, NULL, 0, PGSIZE, write);
+               spte = spte_create (upage, SWAP, NULL, 0, 0, PGSIZE, write);
                spt_insert (&thread_current ()->spt, &spte->elem);
              }
         }
