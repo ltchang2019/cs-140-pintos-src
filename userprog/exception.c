@@ -130,8 +130,6 @@ static void
 page_fault (struct intr_frame *f) 
 {
   bool not_present;  /* True: not-present page, false: writing r/o page. */
-  bool write;        /* True: access was write, false: access was read. */
-  bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
 
   /* Obtain faulting address, the virtual address that was
@@ -152,19 +150,11 @@ page_fault (struct intr_frame *f)
 
   /* Determine cause. */
   not_present = (f->error_code & PF_P) == 0;
-  write = (f->error_code & PF_W) != 0;
-  user = (f->error_code & PF_U) != 0;
-
-  /* Release lock resources for system call page faults. */
-  if (!user && !not_present && lock_held_by_current_thread (&filesys_lock))
-    lock_release (&filesys_lock);
 
   /* Look for faulting address in the supplemental page table of
-     the process. This is done for user page faults on not present
-     pages and for system call page faults. 
-     
-     I'M 90% CONFIDENT THIS IS CURRENTLY A HACK. PLEASE FIX. */
-  if ((user && not_present) || (!user && write))
+     the process. This is done for user page faults and for page
+     faults in system calls. */
+  if (not_present)
     {
       uint8_t *upage = pg_round_down (fault_addr);
       struct spte* spte = spte_lookup (upage);
@@ -188,18 +178,11 @@ page_fault (struct intr_frame *f)
           return;
         }
     }
-
-    /* Terminate process if faulting address is an invalid access. */
+    
+    /* Release locks on resources and terminate process if faulting
+       address is an invalid access. */
+    if (lock_held_by_current_thread (&filesys_lock))
+      lock_release (&filesys_lock);
     exit_error (-1);
-
-//   /* To implement virtual memory, delete the rest of the function
-//      body, and replace it with code that brings in the page to
-//      which fault_addr refers. */
-//   printf ("Page fault at %p: %s error %s page in %s context.\n",
-//           fault_addr,
-//           not_present ? "not present" : "rights violation",
-//           write ? "writing" : "reading",
-//           user ? "user" : "kernel");
-//   kill (f);
 }
 
