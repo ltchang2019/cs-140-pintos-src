@@ -217,10 +217,7 @@ page_fault (struct intr_frame *f)
         }
     }
     
-    /* Release locks on resources and terminate process if faulting
-       address is an invalid access. */
-    if (lock_held_by_current_thread (&filesys_lock))
-      lock_release (&filesys_lock);
+    /* Terminate process if faulting address is an invalid access. */
     exit_error (-1);
 }
 
