@@ -52,9 +52,7 @@ free_fd_list (void)
       struct list_elem *fd_elem = list_pop_front (&t->fd_list);
       struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
       file = entry->file;
-      lock_acquire (&filesys_lock);
       file_close (file);
-      lock_release (&filesys_lock);
       list_remove (fd_elem);
       free (entry);
     }
@@ -235,19 +233,15 @@ process_exit (void)
   struct thread *t = thread_current ();
   uint32_t *pd;
 
-  /* Free supplemental page table of process. */
-  spt_free_table (&t->spt);
-
-  /* Free all user program resources held by process. */
-  free_fd_list ();
-  free_child_p_info_list ();
-  if (lock_held_by_current_thread (&filesys_lock))
-    lock_release (&filesys_lock);
-
-  /* Closing executable allows writes again. */
-  lock_acquire (&filesys_lock);
+  /* Close executable to allow writes again and free
+     all user program resources held by process. */ 
+  if (!lock_held_by_current_thread (&filesys_lock))
+    lock_acquire (&filesys_lock);
   file_close (t->executable);
+  free_fd_list ();
   lock_release (&filesys_lock);
+  free_child_p_info_list ();
+  spt_free_table (&t->spt);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

@@ -124,6 +124,7 @@ struct thread
     /* Project 3 additions. */
 #ifdef VM
     struct hash spt;                  /* Supplemental page table. */
+    uint8_t *esp;                     /* Saved stack pointer. */
 #endif
 
     /* Owned by thread.c. */
