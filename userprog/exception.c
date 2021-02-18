@@ -4,7 +4,13 @@
 #include "userprog/gdt.h"
 #include "userprog/syscall.h"
 #include "threads/interrupt.h"
+#include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "vm/frame.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -149,18 +155,51 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* Terminate process with -1 exit code if caused by user. */
-  if (user)
-    exit_user_page_fault ();
+  /* Release lock resources for system call page faults. */
+  if (!user && !not_present && lock_held_by_current_thread (&filesys_lock))
+    lock_release (&filesys_lock);
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  /* Look for faulting address in the supplemental page table of
+     the process. This is done for user page faults on not present
+     pages and for system call page faults. 
+     
+     I'M 90% CONFIDENT THIS IS CURRENTLY A HACK. PLEASE FIX. */
+  if ((user && not_present) || (!user && write))
+    {
+      uint8_t *upage = pg_round_down (fault_addr);
+      struct spte* spte = spte_lookup (upage);
+      if (spte != NULL)
+        {
+          /* Obtain a frame to store the page, fetch the data into the
+             frame, and point the page table entry for the faulting
+             virtual address to the physical page. */
+          bool writable = spte->writable;
+          uintptr_t *pd = thread_current ()->pagedir;
+          uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
+          if (kpage == NULL)
+            exit_error (-1);
+          if (pagedir_get_page (pd, upage) == NULL)
+            {
+              bool success = pagedir_set_page (pd, upage, kpage, writable);
+              if (!success)
+                exit_error (-1);
+            }
+          
+          return;
+        }
+    }
+
+    /* Terminate process if faulting address is an invalid access. */
+    exit_error (-1);
+
+//   /* To implement virtual memory, delete the rest of the function
+//      body, and replace it with code that brings in the page to
+//      which fault_addr refers. */
+//   printf ("Page fault at %p: %s error %s page in %s context.\n",
+//           fault_addr,
+//           not_present ? "not present" : "rights violation",
+//           write ? "writing" : "reading",
+//           user ? "user" : "kernel");
+//   kill (f);
 }
 

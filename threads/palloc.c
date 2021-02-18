@@ -41,9 +41,11 @@ static void init_pool (struct pool *, void *base, size_t page_cnt,
 static bool page_from_pool (const struct pool *, void *page);
 
 #ifdef VM
-void *palloc_get_user_pool_base (void)
+void *
+palloc_get_user_pool_base (void)
 {
   ASSERT (user_pool.base != NULL);
+  
   return (void *) user_pool.base;
 }
 #endif

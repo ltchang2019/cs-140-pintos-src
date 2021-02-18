@@ -1,7 +1,7 @@
 #include "devices/block.h"
 #include <list.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 #include "devices/ide.h"
 #include "threads/malloc.h"
 

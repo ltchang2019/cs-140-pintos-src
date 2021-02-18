@@ -19,6 +19,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
@@ -162,6 +163,9 @@ start_process (void *aux UNUSED)
   struct intr_frame if_;
   bool success;
 
+  /* Initialize supplemental page table. */
+  spt_init (&thread_current ()->spt);
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -180,7 +184,7 @@ start_process (void *aux UNUSED)
   /* Notify parent that load finished regardless of success/fail. */
   sema_up (thread_current ()->p_info->sema);
 
-  /* If load failed, quit. */
+  /* If load failed, release resources and quit. */
   if (!success) 
     thread_exit ();
 
@@ -231,7 +235,10 @@ process_exit (void)
   struct thread *t = thread_current ();
   uint32_t *pd;
 
-  /* Free all resources held by process. */
+  /* Free supplemental page table of process. */
+  spt_free_table (&t->spt);
+
+  /* Free all user program resources held by process. */
   free_fd_list ();
   free_child_p_info_list ();
   if (lock_held_by_current_thread (&filesys_lock))
@@ -537,6 +544,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
+  off_t file_pos = ofs;
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
@@ -546,30 +554,38 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      uint8_t *kpage = frame_alloc (PAL_USER);
-      if (kpage == NULL)
-        return false;
+      /* Create supplemental page table entry for this page
+         and add it to SPT of current process. */
+      enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
+      struct spte *spte = spte_create (upage, loc, file, file_pos,
+                                       page_read_bytes, writable);
+      spt_insert (&thread_current ()->spt, &spte->elem);
 
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          frame_free (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+      // /* Get a page of memory. */
+      // uint8_t *kpage = frame_alloc_page (PAL_USER);
+      // if (kpage == NULL)
+      //   return false;
 
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          frame_free (kpage);
-          return false; 
-        }
+      // /* Load this page. */
+      // if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      //   {
+      //     frame_free_page (kpage);
+      //     return false; 
+      //   }
+      // memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+      // /* Add the page to the process's address space. */
+      // if (!install_page (upage, kpage, writable)) 
+      //   {
+      //     frame_free_page (kpage);
+      //     return false; 
+      //   }
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+      file_pos += PGSIZE;
     }
   return true;
 }
@@ -582,11 +598,16 @@ setup_stack (void **esp)
 {
   uint8_t *kpage;
   bool success = false;
+  
+  /* Allocate and initialize first stack page at load time. */
+  uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
+  struct spte *spte = spte_create (upage, FRAME, NULL, 0, PGSIZE, true);
+  spt_insert (&thread_current ()->spt, &spte->elem);
 
-  kpage = frame_alloc (PAL_USER | PAL_ZERO);
+  kpage = frame_alloc_page (PAL_USER | PAL_ZERO, spte);
   if (kpage != NULL)
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      success = install_page (upage, kpage, true);
       if (success)
         {
           *esp = PHYS_BASE - 1;
@@ -638,7 +659,7 @@ setup_stack (void **esp)
           *((uintptr_t *) *esp) = 0;
         }
       else
-        frame_free (kpage);
+        frame_free_page (kpage);
     }
 
   return success;
