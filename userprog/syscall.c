@@ -243,36 +243,16 @@ check_usr_addr (const void *usr_ptr, int num_bytes)
     check_usr_ptr ((char *) usr_ptr + i);
 }
 
-/* Validates user pointer. Checks that pointer is not NULL,
-   is a valid user vaddr, and is mapped to physical memory.
-   Exits and terminates process if any of the checks fail. */
+/* Validates user pointer. Checks that pointer is not NULL
+   and is a valid user vaddr. If the pointer is not mapped
+   to physical memory, the page fault handler will fetch
+   the page if it is mapped. Exits and terminates process if
+   any of the checks fail. */
 static void 
 check_usr_ptr (const void *usr_ptr)
 {
-  if (usr_ptr == NULL) 
+  if (usr_ptr == NULL || !is_user_vaddr (usr_ptr)) 
     syscall_exit (-1);
-
-  if (!is_user_vaddr (usr_ptr))
-    syscall_exit (-1);
-  
-  /* Bring in page if not present in user memory. */
-  uintptr_t *pd = thread_current ()->pagedir;
-  uint8_t *upage = pg_round_down (usr_ptr);
-  if (pagedir_get_page (pd, upage) == NULL) 
-    {
-      struct spte* spte = spte_lookup (upage);
-      if (spte != NULL)
-        {
-          uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
-          if (kpage == NULL)
-            syscall_exit (-1);
-          bool success = pagedir_set_page (pd, upage, kpage, spte->writable);
-          if (!success)
-            syscall_exit (-1);
-        }
-      else
-        syscall_exit (-1);
-    }
 }
 
 /* Halts the operating system and powers down the machine. */
