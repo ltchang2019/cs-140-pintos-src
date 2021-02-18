@@ -34,10 +34,13 @@ static int syscall_write (int fd, const void *buf, unsigned size);
 static void syscall_seek (int fd, unsigned position);
 static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
+static mapid_t syscall_mmap (int fd, void *addr);
+static void syscall_munmap (mapid_t mapid);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
 static struct file *fd_to_file (int fd);
+static struct mmap_entry *mapid_to_mmap_entry (mapid_t mapid);
 
 static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
@@ -180,6 +183,22 @@ syscall_handler (struct intr_frame *f)
         syscall_close (fd);
         break;
       }
+    case SYS_MMAP:
+      {
+        int fd = (int) read_frame (f, 1);
+        void *addr = (void *) read_frame (f, 2);
+        check_usr_ptr (addr);
+
+        syscall_mmap (fd, addr);
+        break;
+      }
+    // case SYS_MUNMAP:
+    //   {
+    //     mapid_t mapid = (mapid_t) read_frame (f, 1);
+
+    //     syscall_munmap (mapid);
+    //     break;
+    //   }
     default:
       break;
   }
@@ -207,8 +226,8 @@ write_frame (struct intr_frame *f, uintptr_t ret_value)
 static struct file *
 fd_to_file (int fd)
 {
-  struct file *file = NULL;
   struct thread *t = thread_current ();
+  struct file *file = NULL;
   struct list_elem *fd_elem;
 
   for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
@@ -223,6 +242,23 @@ fd_to_file (int fd)
     }
 
   return file;
+}
+
+static struct mmap_entry *
+mapid_to_mmap_entry (mapid_t mapid)
+{
+  struct thread *t = thread_current ();
+  struct list_elem *elem;
+
+  for (elem = list_begin (&t->mmap_list); elem != list_end (&t->mmap_list);
+       elem = list_next (elem))
+    {
+      struct mmap_entry *me = list_entry (elem, struct mmap_entry, elem);
+      if (me->mapid == mapid)
+        return me;
+    }
+
+  return NULL;
 }
 
 /* Validates user string. Checks that all characters in
@@ -491,5 +527,53 @@ syscall_close (int fd)
           free (entry);
           return;
         }
+    }
+}
+
+static mapid_t
+syscall_mmap (int fd, void *addr)
+{
+  struct thread *t = thread_current ();
+
+  struct file *file = fd_to_file (fd);
+  int filesize = syscall_filesize (fd);
+  
+  struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
+  me->mapid = t->mapid_counter++;
+  me->uaddr = addr;
+  list_push_back (&t->mmap_list, &me->elem);
+
+  for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
+    {
+      struct file *fresh_file = file_reopen (file);
+      size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
+      struct spte *spte = spte_create (addr + ofs, DISK, fresh_file,
+                                       ofs, page_bytes, true);
+      spt_insert (&t->spt, &spte->elem);
+    }
+
+  return me->mapid;
+}
+
+static void
+syscall_munmap (mapid_t mapid)
+{
+  struct mmap_entry *me = mapid_to_mmap_entry (mapid);
+
+  struct file *file = spte_lookup (me->uaddr)->file;
+  lock_acquire (&filesys_lock);
+  int filesize = file_length (file);
+  lock_release (&filesys_lock);
+  
+  for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
+    {
+      void *curr_uaddr = me->uaddr + ofs;
+      struct spte *spte = spte_lookup (curr_uaddr);
+
+      if (pagedir_is_dirty (thread_current ()->pagedir, curr_uaddr))
+          file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
+
+      spte_free (&spte->elem, NULL);
+      // frame_free_page?
     }
 }

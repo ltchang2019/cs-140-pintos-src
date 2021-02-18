@@ -161,8 +161,12 @@ start_process (void *aux UNUSED)
   struct intr_frame if_;
   bool success;
 
-  /* Initialize supplemental page table. */
-  spt_init (&thread_current ()->spt);
+  struct thread *t = thread_current ();
+
+  /* Initialize supplemental page table and mmap_list. */
+  spt_init (&t->spt);
+  list_init (&t->mmap_list);
+  t->mapid_counter = 0;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
