@@ -28,12 +28,12 @@ struct spte
 
 void spt_init (struct hash *hash_table);
 void spt_insert (struct hash *spt, struct hash_elem *he);
+void spt_delete (struct hash *spt, struct hash_elem *he);
 void spt_free_table (struct hash *spt);
 
 struct spte *spte_create (void *page_uaddr, enum location loc,
                           struct file* file, off_t ofs,
                           size_t page_bytes, bool writable);
 struct spte *spte_lookup (void *page_uaddr);
-void spte_free (struct hash_elem *he, void *aux UNUSED);
 
 #endif /* vm/page.h */

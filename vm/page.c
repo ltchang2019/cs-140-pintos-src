@@ -6,6 +6,7 @@
 static unsigned spte_hash_func (const struct hash_elem *e, void *aux);
 static bool spte_less_func (const struct hash_elem *a,
                             const struct hash_elem *b, void *aux UNUSED);
+static void spte_free (struct hash_elem *he, void *aux UNUSED);
 
 /* Returns a hash of the user virtual address for the page,
    which is the key for supplemental page table entries. */
@@ -42,6 +43,12 @@ void
 spt_insert (struct hash *spt, struct hash_elem *he)
 {
   hash_insert (spt, he);
+}
+
+void
+spt_delete (struct hash *spt, struct hash_elem *he)
+{
+  hash_delete (spt, he);
 }
 
 /* Frees the supplemental page table of a process by deallocating
@@ -86,7 +93,7 @@ spte_lookup (void *page_uaddr)
 
 /* Deallocates the supplemental page table entry linked to the
    hash element in the SPT. */
-void 
+static void 
 spte_free (struct hash_elem *he, void *aux UNUSED)
 {
   struct spte *spte = hash_entry (he, struct spte, elem);

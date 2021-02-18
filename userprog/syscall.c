@@ -15,6 +15,7 @@
 #include "vm/page.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <debug.h>
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -189,16 +190,17 @@ syscall_handler (struct intr_frame *f)
         void *addr = (void *) read_frame (f, 2);
         check_usr_ptr (addr);
 
-        syscall_mmap (fd, addr);
+        mapid_t mapid = syscall_mmap (fd, addr);
+        write_frame (f, mapid);
         break;
       }
-    // case SYS_MUNMAP:
-    //   {
-    //     mapid_t mapid = (mapid_t) read_frame (f, 1);
+    case SYS_MUNMAP:
+      {
+        mapid_t mapid = (mapid_t) read_frame (f, 1);
 
-    //     syscall_munmap (mapid);
-    //     break;
-    //   }
+        syscall_munmap (mapid);
+        break;
+      }
     default:
       break;
   }
@@ -551,14 +553,17 @@ syscall_mmap (int fd, void *addr)
                                        ofs, page_bytes, true);
       spt_insert (&t->spt, &spte->elem);
     }
-
+  
   return me->mapid;
 }
 
 static void
 syscall_munmap (mapid_t mapid)
 {
+  struct thread *t = thread_current ();
+
   struct mmap_entry *me = mapid_to_mmap_entry (mapid);
+  ASSERT (me != NULL);
 
   struct file *file = spte_lookup (me->uaddr)->file;
   lock_acquire (&filesys_lock);
@@ -569,11 +574,13 @@ syscall_munmap (mapid_t mapid)
     {
       void *curr_uaddr = me->uaddr + ofs;
       struct spte *spte = spte_lookup (curr_uaddr);
+      ASSERT (spte != NULL);
 
-      if (pagedir_is_dirty (thread_current ()->pagedir, curr_uaddr))
+      if (pagedir_is_dirty (t->pagedir, curr_uaddr))
           file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
 
-      spte_free (&spte->elem, NULL);
-      // frame_free_page?
+      spt_delete (&t->spt, &spte->elem);
+      free (spte);
+      // frame_free_page (pagedir_get_page (t->pagedir, curr_uaddr));
     }
 }
