@@ -101,7 +101,7 @@ malloc (size_t size)
      request. */
   for (d = descs; d < descs + desc_cnt; d++)
     if (d->block_size >= size)
-        break;
+      break;
   if (d == descs + desc_cnt) 
     {
       /* SIZE is too big for any descriptor.

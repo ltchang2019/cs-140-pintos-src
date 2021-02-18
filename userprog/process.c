@@ -186,7 +186,7 @@ start_process (void *aux UNUSED)
 
   /* If load failed, release resources and quit. */
   if (!success) 
-      thread_exit ();
+    thread_exit ();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -544,8 +544,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-  file_seek (file, ofs);
   off_t file_pos = ofs;
+  file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -554,7 +554,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Create supplemental page table entry for this page. 
+      /* Create supplemental page table entry for this page
          and add it to SPT of current process. */
       enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
       struct spte *spte = spte_create (upage, loc, file, file_pos,

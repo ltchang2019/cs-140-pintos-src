@@ -1,7 +1,7 @@
+#include "vm/page.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "userprog/syscall.h"
-#include "vm/page.h"
 
 static unsigned spte_hash_func (const struct hash_elem *e, void *aux);
 static bool spte_less_func (const struct hash_elem *a,

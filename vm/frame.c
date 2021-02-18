@@ -1,3 +1,4 @@
+#include "vm/frame.h"
 #include <debug.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -7,7 +8,6 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "vm/frame.h"
 
 static void *user_pool_base;
 static struct frame_entry *frame_table_base;
@@ -43,6 +43,9 @@ frame_table_init (size_t num_frames)
 
   /* Initialize frames in frame table. */
   frame_table_base = malloc (sizeof (struct frame_entry) * free_frames);
+  if (frame_table_base == NULL)
+    PANIC ("Not enough memory for frame table.");
+
   for (size_t index = 0; index < free_frames; index++)
     {
       struct frame_entry *f = frame_table_base + index;
@@ -79,19 +82,18 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       memset (page_kaddr, 0, PGSIZE);
   else if (spte->loc == DISK)
     {
-      /* Read the non-zero bytes of the page and zero the rest. */
-      size_t num_bytes = spte->page_bytes;
+      /* Read the non-zero bytes of the page from the file on disk
+         and zero the remaining bytes. */
       lock_acquire (&filesys_lock);
       off_t bytes_read = file_read_at (spte->file, page_kaddr,
-                                       num_bytes, spte->ofs);
+                                       spte->page_bytes, spte->ofs);
       lock_release (&filesys_lock);
-      
-      if (bytes_read != (int) num_bytes)
+      if (bytes_read != (int) spte->page_bytes)
         {
           palloc_free_page (page_kaddr);
           return NULL;
         }
-      memset (page_kaddr + num_bytes, 0, PGSIZE - num_bytes);
+      memset (page_kaddr + bytes_read, 0, PGSIZE - bytes_read);
     }
 
   return page_kaddr;

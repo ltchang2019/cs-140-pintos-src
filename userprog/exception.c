@@ -155,33 +155,42 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* Look for fault_addr in supplemental page table of process. */
-  if (user && not_present)
+  /* Release lock resources for system call page faults. */
+  if (!user && !not_present && lock_held_by_current_thread (&filesys_lock))
+    lock_release (&filesys_lock);
+
+  /* Look for faulting address in the supplemental page table of
+     the process. This is done for user page faults on not present
+     pages and for system call page faults. 
+     
+     I'M 90% CONFIDENT THIS IS CURRENTLY A HACK. PLEASE FIX. */
+  if ((user && not_present) || (!user && write))
     {
       uint8_t *upage = pg_round_down (fault_addr);
       struct spte* spte = spte_lookup (upage);
-
       if (spte != NULL)
         {
-          /* Get a frame to place page in and install the page in
-             the page directory of faulting process. */
+          /* Obtain a frame to store the page, fetch the data into the
+             frame, and point the page table entry for the faulting
+             virtual address to the physical page. */
+          bool writable = spte->writable;
           uintptr_t *pd = thread_current ()->pagedir;
           uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
-          bool writable = spte->writable;
+          if (kpage == NULL)
+            exit_error (-1);
           if (pagedir_get_page (pd, upage) == NULL)
             {
               bool success = pagedir_set_page (pd, upage, kpage, writable);
               if (!success)
                 exit_error (-1);
-
-              return;
             }
+          
+          return;
         }
     }
-  
-  /* Page fault was an invalid user access. Terminate the process. */
-  (void) write;
-  exit_error (-1);
+
+    /* Terminate process if faulting address is an invalid access. */
+    exit_error (-1);
 
 //   /* To implement virtual memory, delete the rest of the function
 //      body, and replace it with code that brings in the page to

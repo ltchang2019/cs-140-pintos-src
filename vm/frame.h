@@ -1,6 +1,7 @@
 #ifndef VM_FRAME_H
 #define VM_FRAME_H
 
+#include "threads/palloc.h"
 #include "threads/synch.h"
 #include "vm/page.h"
 

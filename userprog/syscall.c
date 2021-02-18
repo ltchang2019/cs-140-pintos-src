@@ -264,6 +264,8 @@ check_usr_ptr (const void *usr_ptr)
       if (spte != NULL)
         {
           uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
+          if (kpage == NULL)
+            syscall_exit (-1);
           bool success = pagedir_set_page (pd, upage, kpage, spte->writable);
           if (!success)
             syscall_exit (-1);
