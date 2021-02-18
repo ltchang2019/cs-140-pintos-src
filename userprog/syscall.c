@@ -64,6 +64,10 @@ exit_error (int status)
 static void
 syscall_handler (struct intr_frame *f) 
 {
+  /* Save user stack pointer to thread struct in order to handle
+     potential page faults in the kernel. */
+  thread_current ()->esp = f->esp;
+  
   int syscall_num = (int) read_frame (f, 0);
   switch (syscall_num) {
     case SYS_HALT:

@@ -12,6 +12,13 @@
 #include "vm/frame.h"
 #include "vm/page.h"
 
+/* Default limit on stack size is 8 MB. */
+#define STACK_LIMIT (8 * 1024 * 1024)
+
+/* Byte offsets for stack accesses from PUSH/PUSHA instructions. */
+#define PUSH_OFS 4
+#define PUSHA_OFS 32
+
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -130,6 +137,8 @@ static void
 page_fault (struct intr_frame *f) 
 {
   bool not_present;  /* True: not-present page, false: writing r/o page. */
+  bool write;        /* True: access was write, false: access was read. */
+  bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
 
   /* Obtain faulting address, the virtual address that was
@@ -150,6 +159,8 @@ page_fault (struct intr_frame *f)
 
   /* Determine cause. */
   not_present = (f->error_code & PF_P) == 0;
+  write = (f->error_code & PF_W) != 0;
+  user = (f->error_code & PF_U) != 0;
 
   /* Look for faulting address in the supplemental page table of
      the process. This is done for user page faults and for page
@@ -158,11 +169,38 @@ page_fault (struct intr_frame *f)
     {
       uint8_t *upage = pg_round_down (fault_addr);
       struct spte* spte = spte_lookup (upage);
+
+      /* Supplemental page table entry not found, so now check
+         whether the faulting address is a stack access. */
+      if (spte == NULL)
+        {
+           /* Load user stack pointer from thread struct if this
+              is a kernel page fault. */
+           if (!user)
+             f->esp = thread_current ()->esp;
+
+           /* Terminate process if faulting address is an attempt
+              to access stack beyond the stack size limit (8 MB). */
+           size_t stack_access = PHYS_BASE - f->esp;
+           if (stack_access > STACK_LIMIT)
+             exit_error (-1);
+
+           /* If stack access is valid, create a supplemental page table
+              entry for the new stack page and add it to the SPT. */
+           size_t esp_offset = f->esp - fault_addr;
+           if (upage == pg_round_down (f->esp) || fault_addr > f->esp
+               || esp_offset == PUSH_OFS || esp_offset == PUSHA_OFS)
+             {
+               spte = spte_create (upage, SWAP, NULL, 0, PGSIZE, write);
+               spt_insert (&thread_current ()->spt, &spte->elem);
+             }
+        }
+
+      /* Obtain a frame to store the page, fetch the data into the frame,
+         and point the page table entry for the faulting virtual address
+         to the physical page. */
       if (spte != NULL)
         {
-          /* Obtain a frame to store the page, fetch the data into the
-             frame, and point the page table entry for the faulting
-             virtual address to the physical page. */
           bool writable = spte->writable;
           uintptr_t *pd = thread_current ()->pagedir;
           uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
