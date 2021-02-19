@@ -146,22 +146,6 @@ struct p_info
     struct list_elem elem;            /* List element. */
   };
 
-/* File descriptor entry. Contains the file descriptor and
-   a pointer to it's associated file struct. */
-struct fd_entry
-  {
-    int fd;                           /* Non-negative integer descriptor. */
-    struct file *file;                /* Reference to open file. */
-    struct list_elem elem;            /* List element. */
-  };
-
-// struct mmap_entry
-//   {
-//     mapid_t mapid;
-//     void *uaddr;
-//     struct list_elem elem;
-//   };
-
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */

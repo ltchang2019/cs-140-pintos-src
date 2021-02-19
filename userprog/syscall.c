@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#include "userprog/fd.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -41,12 +42,10 @@ static void syscall_munmap (mapid_t mapid);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
-static struct file *fd_to_file (int fd);
 
 static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
 static void check_usr_ptr (const void *usr_ptr);
-static bool is_valid_mmap_region (void *start_uaddr, int filesize);
 
 /* Initializes the system call handler and lock for filesystem
    system calls. */
@@ -222,29 +221,6 @@ static void
 write_frame (struct intr_frame *f, uintptr_t ret_value)
 {
   f->eax = ret_value;
-}
-
-/* Returns a pointer to the file associated with FD in current
-   process's set of open file descriptors, or NULL if none. */
-static struct file *
-fd_to_file (int fd)
-{
-  struct thread *t = thread_current ();
-  struct file *file = NULL;
-  struct list_elem *fd_elem;
-
-  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
-       fd_elem = list_next (fd_elem))
-    {
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      if (entry->fd == fd)
-        {
-          file = entry->file;
-          break;
-        }
-    }
-
-  return file;
 }
 
 /* Validates user string. Checks that all characters in
@@ -514,27 +490,6 @@ syscall_close (int fd)
           return;
         }
     }
-}
-
-/* Ensure all pages to be mmapped are valid addresses
-   and don't overlap with an existing page's uaddr. */
-static bool 
-is_valid_mmap_region (void *start_uaddr, int filesize)
-{
-  for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
-    {
-      void *curr_uaddr = start_uaddr + ofs;
-
-      if (curr_uaddr == NULL)
-        return false;
-      if (((uint32_t) curr_uaddr) % PGSIZE != 0) 
-        return false;
-      if (!is_user_vaddr (curr_uaddr))
-        return false;
-      if (spte_lookup (curr_uaddr) != NULL)
-        return false;
-    }
-  return true;
 }
 
 static mapid_t

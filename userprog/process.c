@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/fd.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -20,6 +21,7 @@
 #include "threads/vaddr.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/mmap.h"
 
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
@@ -36,27 +38,7 @@ static int argc;               /* Argument count. */
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmd_args, void (**eip) (void), void **esp);
 
-static void free_fd_list (void);
 static void free_child_p_info_list (void);
-
-/* Closes all open file descriptors of a process and deallocates
-   resources of process fd_list. */
-static void
-free_fd_list (void)
-{
-  struct file *file;
-  struct thread *t = thread_current ();
-
-  while (!list_empty (&t->fd_list))
-    {
-      struct list_elem *fd_elem = list_pop_front (&t->fd_list);
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      file = entry->file;
-      file_close (file);
-      list_remove (fd_elem);
-      free (entry);
-    }
-}
 
 /* Traverse through current thread's child_p_info_list and 
    deallocate resources of all p_info structs. */
@@ -239,14 +221,15 @@ process_exit (void)
 
   /* Close executable to allow writes again and free
      all user program resources held by process. */ 
-  if (!lock_held_by_current_thread (&filesys_lock))
-    lock_acquire (&filesys_lock);
-  file_close (t->executable);
+  munmap_all ();
   free_fd_list ();
-  lock_release (&filesys_lock);
   free_child_p_info_list ();
   spt_free_table (&t->spt);
 
+  if (!lock_held_by_current_thread (&filesys_lock))
+    lock_acquire (&filesys_lock);
+  file_close (t->executable);
+  lock_release (&filesys_lock);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = t->pagedir;

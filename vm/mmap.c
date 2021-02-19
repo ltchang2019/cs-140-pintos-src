@@ -6,34 +6,12 @@
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
+#include "userprog/fd.h"
 #include "vm/mmap.h"
 #include "vm/page.h"
 
 static struct mmap_entry *mapid_to_mmap_entry (mapid_t mapid);
-static struct file *fd_to_file (int fd);
-
-/* Returns a pointer to the file associated with FD in current
-   process's set of open file descriptors, or NULL if none. */
-static struct file *
-fd_to_file (int fd)
-{
-  struct thread *t = thread_current ();
-  struct file *file = NULL;
-  struct list_elem *fd_elem;
-
-  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
-       fd_elem = list_next (fd_elem))
-    {
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      if (entry->fd == fd)
-        {
-          file = entry->file;
-          break;
-        }
-    }
-
-  return file;
-}
+static void munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t);
 
 static struct mmap_entry *
 mapid_to_mmap_entry (mapid_t mapid)
@@ -73,20 +51,6 @@ is_valid_mmap_region (void *start_uaddr, int filesize)
   return true;
 }
 
-// static void 
-// munmap_all (void)
-// {
-//   struct thread *t = thread_current ();
-//   struct list_elem *elem;
-
-//   for (elem = list_begin (&t->mmap_list); elem != list_end (&t->mmap_list);
-//        elem = list_next (elem))
-//     {
-//       struct mmap_entry *me = list_entry (elem, struct mmap_entry, elem);
-//       syscall_munmap (me->mapid);
-//     }
-// }
-
 mapid_t
 mmap (int fd, void *addr)
 {
@@ -99,7 +63,9 @@ mmap (int fd, void *addr)
   lock_acquire (&filesys_lock);
   int filesize = file_length (file);
   lock_release (&filesys_lock);
-
+  
+  if (filesize == 0)
+    return -1;
   if (!is_valid_mmap_region (addr, filesize))
     return -1;
   
@@ -110,7 +76,10 @@ mmap (int fd, void *addr)
 
   for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
     {
+      lock_acquire (&filesys_lock);
       struct file *fresh_file = file_reopen (file);
+      lock_release (&filesys_lock);
+
       size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
       struct spte *spte = spte_create (addr + ofs, DISK, fresh_file,
                                        ofs, page_bytes, true);
@@ -128,25 +97,48 @@ munmap (mapid_t mapid)
   struct mmap_entry *me = mapid_to_mmap_entry (mapid);
   ASSERT (me != NULL);
 
-  struct file *file = spte_lookup (me->uaddr)->file;
+  munmap_by_mmap_entry (me, t);
+}
+
+static void 
+munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
+{
+  struct file *file = spte_lookup (entry->uaddr)->file;
   lock_acquire (&filesys_lock);
   int filesize = file_length (file);
   lock_release (&filesys_lock);
   
   for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
     {
-      void *curr_uaddr = me->uaddr + ofs;
+      void *curr_uaddr = entry->uaddr + ofs;
       struct spte *spte = spte_lookup (curr_uaddr);
       ASSERT (spte != NULL);
 
       if (pagedir_is_dirty (t->pagedir, curr_uaddr))
-          file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
-
+        {
+           lock_acquire (&filesys_lock);
+           file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
+           lock_release (&filesys_lock);
+        }
       spt_delete (&t->spt, &spte->elem);
       free (spte);
 
-      // void *kaddr = pagedir_get_page (t->pagedir, curr_uaddr);
-      // printf ("KADDR: %p", kaddr);
-      // frame_free_page (kaddr);
+    //   TODO: NOT YET FREEING UNDERLYING PAGES FOR MMAPPED FILE
+    //   void *kaddr = pagedir_get_page (t->pagedir, curr_uaddr);
+    //   printf ("KADDR: %p", kaddr);
+    //   frame_free_page (kaddr);
+    }
+}
+
+void 
+munmap_all (void)
+{
+  struct thread *t = thread_current ();
+
+  while (!list_empty (&t->mmap_list))
+    {
+       struct list_elem *elem = list_pop_front (&t->mmap_list);
+       struct mmap_entry *me = list_entry (elem, struct mmap_entry, elem);
+       munmap_by_mmap_entry (me, t);
     }
 }
