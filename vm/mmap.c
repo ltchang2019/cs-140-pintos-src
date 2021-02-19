@@ -1,4 +1,5 @@
 #include "vm/mmap.h"
+#include "vm/frame.h"
 #include "vm/page.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -90,7 +91,7 @@ mmap (int fd, void *addr)
 
       size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
       struct spte *spte = spte_create (addr + ofs, DISK, fresh_file, ofs,
-                                       0, page_bytes, true);
+                                       0, page_bytes, true, false);
       spt_insert (&t->spt, &spte->elem);
     }
   
@@ -133,6 +134,15 @@ munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
            file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
            lock_release (&filesys_lock);
         }
+
+      /* Free underlying page. */
+      if (spte->loaded)
+        {
+          void *kaddr = pagedir_get_page (t->pagedir, curr_uaddr);
+          frame_free_page (kaddr);
+        }
+
+      list_remove (&entry->elem);
       spt_delete (&t->spt, &spte->elem);
       free (spte);
 

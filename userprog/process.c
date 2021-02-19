@@ -236,6 +236,7 @@ process_exit (void)
     lock_acquire (&filesys_lock);
   file_close (t->executable);
   lock_release (&filesys_lock);
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = t->pagedir;
@@ -545,7 +546,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
          and add it to SPT of current process. */
       enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
       struct spte *spte = spte_create (upage, loc, file, file_pos, 0,
-                                       page_read_bytes, writable);
+                                       page_read_bytes, writable, false);
       spt_insert (&thread_current ()->spt, &spte->elem);
 
       /* Advance. */
@@ -568,7 +569,8 @@ setup_stack (void **esp)
   
   /* Allocate and initialize first stack page at load time. */
   uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  struct spte *spte = spte_create (upage, SWAP, NULL, 0, 0, PGSIZE, true);
+  struct spte *spte = spte_create (upage, STACK, NULL, 0, 0,
+                                   PGSIZE, true, true);
   spt_insert (&thread_current ()->spt, &spte->elem);
 
   kpage = frame_alloc_page (PAL_USER | PAL_ZERO, spte);

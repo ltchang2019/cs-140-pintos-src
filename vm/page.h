@@ -11,6 +11,7 @@ enum location
     SWAP,     /* In a swap slot on the swap partition. */
     DISK,     /* Stored in a file on disk. */
     ZERO,     /* A zero page. */
+    STACK
   };
 
 /* Supplemental page table (SPT) entry. */
@@ -34,7 +35,7 @@ void spt_free_table (struct hash *spt);
 
 struct spte *spte_create (void *page_uaddr, enum location loc,
                           struct file* file, off_t ofs, size_t swap_idx,
-                          size_t page_bytes, bool writable);
+                          size_t page_bytes, bool writable, bool loaded);
 struct spte *spte_lookup (void *page_uaddr);
 
 #endif /* vm/page.h */

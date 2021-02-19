@@ -1,7 +1,9 @@
 #include "vm/page.h"
+#include "vm/frame.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 
 static unsigned spte_hash_func (const struct hash_elem *e, void *aux);
@@ -66,7 +68,7 @@ spt_free_table (struct hash *spt)
 struct spte *
 spte_create (void *page_uaddr, enum location loc,
              struct file *file, off_t ofs, size_t swap_idx,
-             size_t page_bytes, bool writable)
+             size_t page_bytes, bool writable, bool loaded)
 {
   struct spte *spte = malloc (sizeof (struct spte));
   spte->page_uaddr = page_uaddr;
@@ -76,6 +78,7 @@ spte_create (void *page_uaddr, enum location loc,
   spte->swap_idx = swap_idx;
   spte->page_bytes = page_bytes;
   spte->writable = writable;
+  spte->loaded = loaded;
 
   return spte;
 }
@@ -100,5 +103,10 @@ static void
 spte_free (struct hash_elem *he, void *aux UNUSED)
 {
   struct spte *spte = hash_entry (he, struct spte, elem);
+  struct thread *t = thread_current ();
+  void *kaddr = pagedir_get_page (t->pagedir, spte->page_uaddr);
+  if (spte->loaded)
+    frame_free_page (kaddr);
+  spt_delete (&t->spt, &spte->elem);
   free (spte);
 }

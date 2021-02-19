@@ -9,11 +9,16 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 
 static void *user_pool_base;
 static struct frame_entry *frame_table_base;
+static struct frame_entry *lead_hand;
+static struct frame_entry *lag_hand;
+static size_t free_frames;
 
 static struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
+static void *frame_evict_page (void);
 
 /* Translates address returned by palloc_get_page() into
    address of corresponding frame in frame_table. */
@@ -38,7 +43,7 @@ frame_table_init (size_t num_frames)
      Half of free memory can be used to store frames. */
   uint8_t *free_start = ptov (1024 * 1024);
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
-  size_t free_frames = (free_end - free_start) / (PGSIZE * 2);
+  free_frames = (free_end - free_start) / (PGSIZE * 2);
   if (free_frames > num_frames)
     free_frames = num_frames;
 
@@ -57,6 +62,10 @@ frame_table_init (size_t num_frames)
 
   /* Get base address of the user pool. */
   user_pool_base = palloc_get_user_pool_base ();
+
+  /* Initialize leading and lagging hands. */
+  lead_hand = frame_table_base;
+  lag_hand = frame_table_base + 1;
 }
 
 /* Obtain a page from the user pool and store in the next
@@ -71,7 +80,11 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   /* Get a page of memory. */
   void *page_kaddr = palloc_get_page (flags);
   if (page_kaddr == NULL)
-    return NULL;
+    {
+      page_kaddr = frame_evict_page ();
+      if (page_kaddr == NULL)
+        return NULL;
+    }
 
   /* Get index to available frame and set fields in frame. */
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
@@ -79,9 +92,11 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   f->spte = spte;
 
   /* Load data into the page depending on it's location. */
-  if (spte->loc == ZERO)
+  if (spte->loc == ZERO || spte->loc == STACK)
     memset (page_kaddr, 0, PGSIZE);
-  else if (spte->loc == DISK)
+  else if (spte->loc == SWAP && !spte->loaded)
+    swap_read_page (page_kaddr, spte->swap_idx);
+  else if (spte->loc == DISK && !spte->loaded)
     {
       /* Read the non-zero bytes of the page from the file on disk
          and zero the remaining bytes. */
@@ -97,6 +112,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       memset (page_kaddr + bytes_read, 0, PGSIZE - bytes_read);
     }
 
+  spte->loaded = true;
   return page_kaddr;
 }
 
@@ -108,8 +124,59 @@ frame_free_page (void *page_kaddr)
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
   ASSERT (f != NULL);
   
+  pagedir_clear_page(thread_current ()->pagedir, f->spte->page_uaddr);
   f->page_kaddr = NULL;
   f->spte = NULL;
 
   palloc_free_page (page_kaddr);
+}
+
+/* Evict a page from it's frame and return the kernel virtual
+   address of the frame that is now free to be used. */
+static void *
+frame_evict_page (void)
+{
+  /* Access dirty and access bits through user virtual address. */
+  /* Choose random page for now. */
+  /* Old spte, new spte. */
+  /* pagedir_clear_page, pagedir_set_page. */
+  struct thread *t = thread_current ();
+  struct frame_entry *f = lead_hand;
+  
+  lead_hand++;
+  if (lead_hand == frame_table_base + free_frames)
+    lead_hand = frame_table_base;
+
+  struct spte *spte = f->spte;
+  void *upage = spte->page_uaddr;
+
+  if (pagedir_is_dirty (t->pagedir, upage) && spte->loc == SWAP)
+    {
+      size_t swap_idx = swap_write_page (f->page_kaddr);
+      spte->swap_idx = swap_idx;
+    }
+  else if (pagedir_is_dirty (t->pagedir, upage) && spte->loc == ZERO)
+    {
+      //printf ("Writing buf to swap\n");
+      //printf ("%d\n", (int) *((char *)upage + 1));
+      size_t swap_idx = swap_write_page (f->page_kaddr);
+      spte->swap_idx = swap_idx;
+      spte->loc = SWAP;
+    }
+  else if (spte->loc == STACK)
+    {
+      size_t swap_idx = swap_write_page (f->page_kaddr);
+      spte->swap_idx = swap_idx;
+      spte->loc = SWAP;
+    }
+  else if (pagedir_is_dirty (t->pagedir, upage) && spte->loc == DISK)
+    {
+      lock_acquire (&filesys_lock);
+      file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
+      lock_release (&filesys_lock);
+    }
+
+  pagedir_clear_page (t->pagedir, upage);
+  spte->loaded = false;
+  return f->page_kaddr;
 }

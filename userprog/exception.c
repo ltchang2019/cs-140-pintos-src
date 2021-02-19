@@ -191,7 +191,8 @@ page_fault (struct intr_frame *f)
            if (esp_ofs == PUSH_OFS || esp_ofs== PUSHA_OFS
                || fault_addr >= f->esp)
              {
-               spte = spte_create (upage, SWAP, NULL, 0, 0, PGSIZE, write);
+               spte = spte_create (upage, STACK, NULL, 0, 0,
+                                   PGSIZE, write, false);
                spt_insert (&thread_current ()->spt, &spte->elem);
              }
         }
@@ -206,7 +207,6 @@ page_fault (struct intr_frame *f)
           uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
           if (kpage == NULL)
             exit_error (-1);
-
           if (pagedir_get_page (pd, upage) == NULL)
             {
               bool success = pagedir_set_page (pd, upage, kpage, writable);
