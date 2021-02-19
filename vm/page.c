@@ -46,6 +46,7 @@ spt_insert (struct hash *spt, struct hash_elem *he)
   hash_insert (spt, he);
 }
 
+/* Delete a supplemental page table entry from the SPT. */
 void
 spt_delete (struct hash *spt, struct hash_elem *he)
 {

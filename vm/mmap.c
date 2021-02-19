@@ -13,6 +13,9 @@
 static struct mmap_entry *mapid_to_mmap_entry (mapid_t mapid);
 static void munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t);
 
+/* Search through process's mmap_list for the mmap_entry
+   with the provided mapid. Return NULL if the entry doesn't 
+   exist. */
 static struct mmap_entry *
 mapid_to_mmap_entry (mapid_t mapid)
 {
@@ -30,8 +33,8 @@ mapid_to_mmap_entry (mapid_t mapid)
   return NULL;
 }
 
-/* Ensure all pages to be mmapped are valid addresses
-   and don't overlap with an existing page's uaddr. */
+/* Check that all pages to be mmapped have valid addresses, don't 
+overlap with an existing page's uaddr, and are properly aligned. */
 static bool 
 is_valid_mmap_region (void *start_uaddr, int filesize)
 {
@@ -41,7 +44,7 @@ is_valid_mmap_region (void *start_uaddr, int filesize)
 
       if (curr_uaddr == NULL)
         return false;
-      if (((uint32_t) curr_uaddr) % PGSIZE != 0) 
+      if (((uintptr_t) curr_uaddr) % PGSIZE != 0) 
         return false;
       if (!is_user_vaddr (curr_uaddr))
         return false;
@@ -51,6 +54,11 @@ is_valid_mmap_region (void *start_uaddr, int filesize)
   return true;
 }
 
+/* Map the file with given fd to provided address. Create a new
+   mmap_entry for the process, then fill the process's spt with 
+   sptes with the file*, byte offset, and number of bytes in that 
+   page. The returned mapid is simply the value of the process's 
+   mapid_counter. For any type of bad input, return -1. */
 mapid_t
 mmap (int fd, void *addr)
 {
@@ -89,6 +97,10 @@ mmap (int fd, void *addr)
   return me->mapid;
 }
 
+/* Unmap the mapped region with the given mapid. If no such mapid
+   exists for the process, the process fails. Otherwise, we free
+   the sptes for all mapped pages and write the data back to disk if 
+   the page was written to (checked through dirty bit). */
 void 
 munmap (mapid_t mapid)
 {
@@ -100,6 +112,7 @@ munmap (mapid_t mapid)
   munmap_by_mmap_entry (me, t);
 }
 
+/* Unmap the address region given a mmap_entry struct. */
 static void 
 munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
 {
@@ -130,6 +143,8 @@ munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
     }
 }
 
+/* Unmap all mappings owned by the calling process. Called
+   in process_exit(). */
 void 
 munmap_all (void)
 {

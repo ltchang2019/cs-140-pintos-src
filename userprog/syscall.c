@@ -297,7 +297,7 @@ syscall_exit (int status)
       t->p_info->exit_status = status;
       sema_up (t->p_info->sema);
     }
-  
+
   printf ("%s: exit(%d)\n", t->name, status);
 
   /* Internally calls process_exit() and cleans up memory. */
@@ -492,12 +492,16 @@ syscall_close (int fd)
     }
 }
 
+/* Map the file with given fd to provided address. 
+   Return -1 on any kind of bad input. */
 static mapid_t
 syscall_mmap (int fd, void *addr)
 {
   return mmap (fd, addr);
 }
 
+/* Unmap the mapping with the given mapid and
+   free the mappings associated resources. */
 static void
 syscall_munmap (mapid_t mapid)
 {

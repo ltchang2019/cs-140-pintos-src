@@ -219,8 +219,10 @@ process_exit (void)
   struct thread *t = thread_current ();
   uint32_t *pd;
 
-  /* Close executable to allow writes again and free
-     all user program resources held by process. */ 
+/* Free all process resources. Unmap mmapped files, 
+   free open fd table, free child p_info structs, 
+   free spt table, and close file to allow writes to 
+   executable again. */ 
   munmap_all ();
   free_fd_list ();
   free_child_p_info_list ();

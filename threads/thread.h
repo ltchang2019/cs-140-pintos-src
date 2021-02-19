@@ -18,7 +18,6 @@ enum thread_status
   };
 
 typedef int tid_t;
-typedef int mapid_t;
 
 #define TID_ERROR ((tid_t) - 1)         /* Error value for tid_t. */
 
@@ -125,7 +124,7 @@ struct thread
 #ifdef VM
     struct hash spt;                  /* Supplemental page table. */
     uint8_t *esp;                     /* Saved stack pointer. */
-    size_t mapid_counter;         /* Counter for mapids. */
+    size_t mapid_counter;             /* Counter for mapids. */
     struct list mmap_list;            /* List of mmap entries. */
 #endif
 
