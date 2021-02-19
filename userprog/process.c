@@ -8,6 +8,8 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/fd.h"
+#include "userprog/p_info.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -20,6 +22,7 @@
 #include "threads/vaddr.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/mmap.h"
 
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
@@ -36,27 +39,7 @@ static int argc;               /* Argument count. */
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmd_args, void (**eip) (void), void **esp);
 
-static void free_fd_list (void);
 static void free_child_p_info_list (void);
-
-/* Closes all open file descriptors of a process and deallocates
-   resources of process fd_list. */
-static void
-free_fd_list (void)
-{
-  struct file *file;
-  struct thread *t = thread_current ();
-
-  while (!list_empty (&t->fd_list))
-    {
-      struct list_elem *fd_elem = list_pop_front (&t->fd_list);
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      file = entry->file;
-      file_close (file);
-      list_remove (fd_elem);
-      free (entry);
-    }
-}
 
 /* Traverse through current thread's child_p_info_list and 
    deallocate resources of all p_info structs. */
@@ -161,8 +144,15 @@ start_process (void *aux UNUSED)
   struct intr_frame if_;
   bool success;
 
-  /* Initialize supplemental page table. */
-  spt_init (&thread_current ()->spt);
+  struct thread *t = thread_current ();
+
+  /* Initialize fd table, supplemental page table, and mmap_list. */
+  t->fd_counter = 2;
+  list_init (&t->fd_list);
+  list_init (&t->child_p_info_list);
+  spt_init (&t->spt);
+  list_init (&t->mmap_list);
+  t->mapid_counter = 0;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -233,16 +223,19 @@ process_exit (void)
   struct thread *t = thread_current ();
   uint32_t *pd;
 
-  /* Close executable to allow writes again and free
-     all user program resources held by process. */ 
-  if (!lock_held_by_current_thread (&filesys_lock))
-    lock_acquire (&filesys_lock);
-  file_close (t->executable);
+/* Free all process resources. Unmap mmapped files, 
+   free open fd table, free child p_info structs, 
+   free spt table, and close file to allow writes to 
+   executable again. */ 
+  munmap_all ();
   free_fd_list ();
-  lock_release (&filesys_lock);
   free_child_p_info_list ();
   spt_free_table (&t->spt);
 
+  if (!lock_held_by_current_thread (&filesys_lock))
+    lock_acquire (&filesys_lock);
+  file_close (t->executable);
+  lock_release (&filesys_lock);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = t->pagedir;
@@ -551,7 +544,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Create supplemental page table entry for this page
          and add it to SPT of current process. */
       enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
-      struct spte *spte = spte_create (upage, loc, file, file_pos,
+      struct spte *spte = spte_create (upage, loc, file, file_pos, 0,
                                        page_read_bytes, writable);
       spt_insert (&thread_current ()->spt, &spte->elem);
 
@@ -575,7 +568,7 @@ setup_stack (void **esp)
   
   /* Allocate and initialize first stack page at load time. */
   uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  struct spte *spte = spte_create (upage, FRAME, NULL, 0, PGSIZE, true);
+  struct spte *spte = spte_create (upage, SWAP, NULL, 0, 0, PGSIZE, true);
   spt_insert (&thread_current ()->spt, &spte->elem);
 
   kpage = frame_alloc_page (PAL_USER | PAL_ZERO, spte);

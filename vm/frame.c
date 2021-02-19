@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include "vm/swap.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
@@ -79,7 +80,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
 
   /* Load data into the page depending on it's location. */
   if (spte->loc == ZERO)
-      memset (page_kaddr, 0, PGSIZE);
+    memset (page_kaddr, 0, PGSIZE);
   else if (spte->loc == DISK)
     {
       /* Read the non-zero bytes of the page from the file on disk
@@ -105,6 +106,8 @@ void
 frame_free_page (void *page_kaddr)
 {
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
+  ASSERT (f != NULL);
+  
   f->page_kaddr = NULL;
   f->spte = NULL;
 

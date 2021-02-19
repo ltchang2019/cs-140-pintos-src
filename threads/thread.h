@@ -2,11 +2,14 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
+#include <hash.h>
 #include <list.h>
 #include <stdint.h>
-#include <hash.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
+#include "userprog/p_info.h"
+
+typedef int tid_t;
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -17,9 +20,6 @@ enum thread_status
     THREAD_DYING        /* About to be destroyed. */
   };
 
-/* Thread identifier type.
-   You can redefine this to whatever type you like. */
-typedef int tid_t;
 #define TID_ERROR ((tid_t) - 1)         /* Error value for tid_t. */
 
 /* Thread priorities. */
@@ -125,32 +125,12 @@ struct thread
 #ifdef VM
     struct hash spt;                  /* Supplemental page table. */
     uint8_t *esp;                     /* Saved stack pointer. */
+    size_t mapid_counter;             /* Counter for mapids. */
+    struct list mmap_list;            /* List of mmap entries. */
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                   /* Detects stack overflow. */
-  };
-
-/* Process info struct. Contains information necessary for
-   parent and child to communicate with each other about child
-   process's load status and exit status. */ 
-struct p_info
-  {
-    tid_t tid;                        /* TID of child process. */
-    int exit_status;                  /* Exit status of child. */
-    bool load_succeeded;              /* Child process load result. */
-    struct semaphore *sema;           /* Synchronization so parent waits
-                                         properly for child. */
-    struct list_elem elem;            /* List element. */
-  };
-
-/* File descriptor entry. Contains the file descriptor and
-   a pointer to it's associated file struct. */
-struct fd_entry
-  {
-    int fd;                           /* Non-negative integer descriptor. */
-    struct file *file;                /* Reference to open file. */
-    struct list_elem elem;            /* List element. */
   };
 
 /* If false (default), use round-robin scheduler.
@@ -200,7 +180,5 @@ void increment_recent_cpu (void);
 fixed32_t load_avg_coeff (void);
 void calc_recent_cpu (struct thread *t, void *aux);
 void calc_priority (struct thread *t, void *aux UNUSED);
-
-struct p_info *child_p_info_by_tid (tid_t);
 
 #endif /* threads/thread.h */
