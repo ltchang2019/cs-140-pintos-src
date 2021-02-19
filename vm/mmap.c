@@ -1,14 +1,14 @@
-#include "filesys/file.h"
-#include "filesys/filesys.h"
-#include "threads/thread.h"
-#include "threads/synch.h"
-#include "threads/malloc.h"
-#include "threads/vaddr.h"
-#include "userprog/pagedir.h"
-#include "userprog/syscall.h"
-#include "userprog/fd.h"
 #include "vm/mmap.h"
 #include "vm/page.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "threads/malloc.h"
+#include "threads/synch.h"
+#include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "userprog/fd.h"
+#include "userprog/pagedir.h"
+#include "userprog/syscall.h"
 
 static struct mmap_entry *mapid_to_mmap_entry (mapid_t mapid);
 static void munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t);
@@ -89,8 +89,8 @@ mmap (int fd, void *addr)
       lock_release (&filesys_lock);
 
       size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
-      struct spte *spte = spte_create (addr + ofs, DISK, fresh_file,
-                                       ofs, page_bytes, true);
+      struct spte *spte = spte_create (addr + ofs, DISK, fresh_file, ofs,
+                                       0, page_bytes, true);
       spt_insert (&t->spt, &spte->elem);
     }
   

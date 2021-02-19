@@ -3,12 +3,12 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include "vm/swap.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "vm/swap.h"
 
 static void *user_pool_base;
 static struct frame_entry *frame_table_base;

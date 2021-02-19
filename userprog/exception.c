@@ -2,13 +2,13 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
+#include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "userprog/pagedir.h"
 #include "vm/frame.h"
 #include "vm/page.h"
 
