@@ -17,9 +17,8 @@ enum thread_status
     THREAD_DYING        /* About to be destroyed. */
   };
 
-/* Thread identifier type.
-   You can redefine this to whatever type you like. */
 typedef int tid_t;
+
 #define TID_ERROR ((tid_t) - 1)         /* Error value for tid_t. */
 
 /* Thread priorities. */
@@ -125,6 +124,8 @@ struct thread
 #ifdef VM
     struct hash spt;                  /* Supplemental page table. */
     uint8_t *esp;                     /* Saved stack pointer. */
+    size_t mapid_counter;             /* Counter for mapids. */
+    struct list mmap_list;            /* List of mmap entries. */
 #endif
 
     /* Owned by thread.c. */
@@ -141,15 +142,6 @@ struct p_info
     bool load_succeeded;              /* Child process load result. */
     struct semaphore *sema;           /* Synchronization so parent waits
                                          properly for child. */
-    struct list_elem elem;            /* List element. */
-  };
-
-/* File descriptor entry. Contains the file descriptor and
-   a pointer to it's associated file struct. */
-struct fd_entry
-  {
-    int fd;                           /* Non-negative integer descriptor. */
-    struct file *file;                /* Reference to open file. */
     struct list_elem elem;            /* List element. */
   };
 

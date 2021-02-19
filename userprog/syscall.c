@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#include "userprog/fd.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -13,8 +14,10 @@
 #include "threads/vaddr.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/mmap.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <debug.h>
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -34,10 +37,11 @@ static int syscall_write (int fd, const void *buf, unsigned size);
 static void syscall_seek (int fd, unsigned position);
 static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
+static mapid_t syscall_mmap (int fd, void *addr);
+static void syscall_munmap (mapid_t mapid);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
-static struct file *fd_to_file (int fd);
 
 static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
@@ -180,6 +184,23 @@ syscall_handler (struct intr_frame *f)
         syscall_close (fd);
         break;
       }
+    case SYS_MMAP:
+      {
+        int fd = (int) read_frame (f, 1);
+        void *addr = (void *) read_frame (f, 2);
+        check_usr_ptr (addr);
+
+        mapid_t mapid = syscall_mmap (fd, addr);
+        write_frame (f, mapid);
+        break;
+      }
+    case SYS_MUNMAP:
+      {
+        mapid_t mapid = (mapid_t) read_frame (f, 1);
+
+        syscall_munmap (mapid);
+        break;
+      }
     default:
       break;
   }
@@ -200,29 +221,6 @@ static void
 write_frame (struct intr_frame *f, uintptr_t ret_value)
 {
   f->eax = ret_value;
-}
-
-/* Returns a pointer to the file associated with FD in current
-   process's set of open file descriptors, or NULL if none. */
-static struct file *
-fd_to_file (int fd)
-{
-  struct file *file = NULL;
-  struct thread *t = thread_current ();
-  struct list_elem *fd_elem;
-
-  for (fd_elem = list_begin (&t->fd_list); fd_elem != list_end (&t->fd_list);
-       fd_elem = list_next (fd_elem))
-    {
-      struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
-      if (entry->fd == fd)
-        {
-          file = entry->file;
-          break;
-        }
-    }
-
-  return file;
 }
 
 /* Validates user string. Checks that all characters in
@@ -492,4 +490,20 @@ syscall_close (int fd)
           return;
         }
     }
+}
+
+/* Map the file with given fd to provided address. 
+   Return -1 on any kind of bad input. */
+static mapid_t
+syscall_mmap (int fd, void *addr)
+{
+  return mmap (fd, addr);
+}
+
+/* Unmap the mapping with the given mapid and
+   free the mappings associated resources. */
+static void
+syscall_munmap (mapid_t mapid)
+{
+  munmap (mapid);
 }
