@@ -7,6 +7,9 @@
 #include <hash.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
+#include "userprog/p_info.h"
+
+typedef int tid_t;
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -16,8 +19,6 @@ enum thread_status
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
     THREAD_DYING        /* About to be destroyed. */
   };
-
-typedef int tid_t;
 
 #define TID_ERROR ((tid_t) - 1)         /* Error value for tid_t. */
 
@@ -132,19 +133,6 @@ struct thread
     unsigned magic;                   /* Detects stack overflow. */
   };
 
-/* Process info struct. Contains information necessary for
-   parent and child to communicate with each other about child
-   process's load status and exit status. */ 
-struct p_info
-  {
-    tid_t tid;                        /* TID of child process. */
-    int exit_status;                  /* Exit status of child. */
-    bool load_succeeded;              /* Child process load result. */
-    struct semaphore *sema;           /* Synchronization so parent waits
-                                         properly for child. */
-    struct list_elem elem;            /* List element. */
-  };
-
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -192,7 +180,5 @@ void increment_recent_cpu (void);
 fixed32_t load_avg_coeff (void);
 void calc_recent_cpu (struct thread *t, void *aux);
 void calc_priority (struct thread *t, void *aux UNUSED);
-
-struct p_info *child_p_info_by_tid (tid_t);
 
 #endif /* threads/thread.h */

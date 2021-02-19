@@ -9,6 +9,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
 #include "userprog/fd.h"
+#include "userprog/p_info.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -145,7 +146,10 @@ start_process (void *aux UNUSED)
 
   struct thread *t = thread_current ();
 
-  /* Initialize supplemental page table and mmap_list. */
+  /* Initialize fd table, supplemental page table, and mmap_list. */
+  t->fd_counter = 2;
+  list_init (&t->fd_list);
+  list_init (&t->child_p_info_list);
   spt_init (&t->spt);
   list_init (&t->mmap_list);
   t->mapid_counter = 0;
