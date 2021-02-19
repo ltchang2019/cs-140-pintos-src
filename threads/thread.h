@@ -155,12 +155,12 @@ struct fd_entry
     struct list_elem elem;            /* List element. */
   };
 
-struct mmap_entry
-  {
-    mapid_t mapid;
-    void *uaddr;
-    struct list_elem elem;
-  };
+// struct mmap_entry
+//   {
+//     mapid_t mapid;
+//     void *uaddr;
+//     struct list_elem elem;
+//   };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

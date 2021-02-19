@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/mmap.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <debug.h>
@@ -41,11 +42,11 @@ static void syscall_munmap (mapid_t mapid);
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
 static struct file *fd_to_file (int fd);
-static struct mmap_entry *mapid_to_mmap_entry (mapid_t mapid);
 
 static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
 static void check_usr_ptr (const void *usr_ptr);
+static bool is_valid_mmap_region (void *start_uaddr, int filesize);
 
 /* Initializes the system call handler and lock for filesystem
    system calls. */
@@ -246,23 +247,6 @@ fd_to_file (int fd)
   return file;
 }
 
-static struct mmap_entry *
-mapid_to_mmap_entry (mapid_t mapid)
-{
-  struct thread *t = thread_current ();
-  struct list_elem *elem;
-
-  for (elem = list_begin (&t->mmap_list); elem != list_end (&t->mmap_list);
-       elem = list_next (elem))
-    {
-      struct mmap_entry *me = list_entry (elem, struct mmap_entry, elem);
-      if (me->mapid == mapid)
-        return me;
-    }
-
-  return NULL;
-}
-
 /* Validates user string. Checks that all characters in
    string are at valid memory locations. */
 static void
@@ -337,7 +321,7 @@ syscall_exit (int status)
       t->p_info->exit_status = status;
       sema_up (t->p_info->sema);
     }
-
+  
   printf ("%s: exit(%d)\n", t->name, status);
 
   /* Internally calls process_exit() and cleans up memory. */
@@ -532,55 +516,35 @@ syscall_close (int fd)
     }
 }
 
+/* Ensure all pages to be mmapped are valid addresses
+   and don't overlap with an existing page's uaddr. */
+static bool 
+is_valid_mmap_region (void *start_uaddr, int filesize)
+{
+  for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
+    {
+      void *curr_uaddr = start_uaddr + ofs;
+
+      if (curr_uaddr == NULL)
+        return false;
+      if (((uint32_t) curr_uaddr) % PGSIZE != 0) 
+        return false;
+      if (!is_user_vaddr (curr_uaddr))
+        return false;
+      if (spte_lookup (curr_uaddr) != NULL)
+        return false;
+    }
+  return true;
+}
+
 static mapid_t
 syscall_mmap (int fd, void *addr)
 {
-  struct thread *t = thread_current ();
-
-  struct file *file = fd_to_file (fd);
-  int filesize = syscall_filesize (fd);
-  
-  struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
-  me->mapid = t->mapid_counter++;
-  me->uaddr = addr;
-  list_push_back (&t->mmap_list, &me->elem);
-
-  for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
-    {
-      struct file *fresh_file = file_reopen (file);
-      size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
-      struct spte *spte = spte_create (addr + ofs, DISK, fresh_file,
-                                       ofs, page_bytes, true);
-      spt_insert (&t->spt, &spte->elem);
-    }
-  
-  return me->mapid;
+  return mmap (fd, addr);
 }
 
 static void
 syscall_munmap (mapid_t mapid)
 {
-  struct thread *t = thread_current ();
-
-  struct mmap_entry *me = mapid_to_mmap_entry (mapid);
-  ASSERT (me != NULL);
-
-  struct file *file = spte_lookup (me->uaddr)->file;
-  lock_acquire (&filesys_lock);
-  int filesize = file_length (file);
-  lock_release (&filesys_lock);
-  
-  for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
-    {
-      void *curr_uaddr = me->uaddr + ofs;
-      struct spte *spte = spte_lookup (curr_uaddr);
-      ASSERT (spte != NULL);
-
-      if (pagedir_is_dirty (t->pagedir, curr_uaddr))
-          file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
-
-      spt_delete (&t->spt, &spte->elem);
-      free (spte);
-      // frame_free_page (pagedir_get_page (t->pagedir, curr_uaddr));
-    }
+  munmap (mapid);
 }

@@ -23,6 +23,7 @@ struct spte
     off_t ofs;              /* Offset in file if page on disk. */
     size_t page_bytes;      /* Number of non-zero bytes in page. */
     bool writable;          /* Indicates whether page is writable. */
+    bool loaded;            /* Indicates whether page has been loaded. */
     struct hash_elem elem;  /* Hash element. */
   };
 

@@ -105,6 +105,8 @@ void
 frame_free_page (void *page_kaddr)
 {
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
+  ASSERT (f != NULL);
+  
   f->page_kaddr = NULL;
   f->spte = NULL;
 

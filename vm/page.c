@@ -1,6 +1,7 @@
 #include "vm/page.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/syscall.h"
 
 static unsigned spte_hash_func (const struct hash_elem *e, void *aux);
@@ -86,7 +87,7 @@ spte_lookup (void *page_uaddr)
   struct spte spte;
   struct hash_elem *he;
 
-  spte.page_uaddr = page_uaddr;
+  spte.page_uaddr = (void *) pg_round_down (page_uaddr);
   he = hash_find (&thread_current ()->spt, &spte.elem);
   return he != NULL ? hash_entry (he, struct spte, elem) : NULL;
 }
