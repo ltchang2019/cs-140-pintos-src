@@ -544,7 +544,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Create supplemental page table entry for this page
          and add it to SPT of current process. */
       enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
-      struct spte *spte = spte_create (upage, loc, file, file_pos,
+      struct spte *spte = spte_create (upage, loc, file, file_pos, 0,
                                        page_read_bytes, writable);
       spt_insert (&thread_current ()->spt, &spte->elem);
 
@@ -568,7 +568,7 @@ setup_stack (void **esp)
   
   /* Allocate and initialize first stack page at load time. */
   uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  struct spte *spte = spte_create (upage, FRAME, NULL, 0, PGSIZE, true);
+  struct spte *spte = spte_create (upage, SWAP, NULL, 0, 0, PGSIZE, true);
   spt_insert (&thread_current ()->spt, &spte->elem);
 
   kpage = frame_alloc_page (PAL_USER | PAL_ZERO, spte);

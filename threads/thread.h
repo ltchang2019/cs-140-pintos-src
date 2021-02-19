@@ -2,9 +2,9 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
+#include <hash.h>
 #include <list.h>
 #include <stdint.h>
-#include <hash.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
 #include "userprog/p_info.h"

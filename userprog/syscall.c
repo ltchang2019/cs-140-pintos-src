@@ -1,7 +1,10 @@
 #include "userprog/syscall.h"
+#include <stdio.h>
+#include <syscall-nr.h>
+#include <debug.h>
+#include "userprog/fd.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
-#include "userprog/fd.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -13,11 +16,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
-#include "vm/page.h"
 #include "vm/mmap.h"
-#include <stdio.h>
-#include <syscall-nr.h>
-#include <debug.h>
+#include "vm/page.h"
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -235,9 +235,8 @@ check_usr_str (const char *usr_ptr)
     check_usr_ptr (curr);
 }
 
-/* Validates user pointer. Checks that pointer is not NULL,
-   is a valid user vaddr, and is mapped to physical memory.
-   Exits and terminates process if any of the checks fail. */
+/* Validates user pointer. Checks that pointer is a valid user
+   vaddr. Exits and terminates the process if check fails. */
 static void 
 check_usr_addr (const void *usr_ptr, int num_bytes)
 {
@@ -245,15 +244,14 @@ check_usr_addr (const void *usr_ptr, int num_bytes)
     check_usr_ptr ((char *) usr_ptr + i);
 }
 
-/* Validates user pointer. Checks that pointer is not NULL
-   and is a valid user vaddr. If the pointer is not mapped
-   to physical memory, the page fault handler will fetch
-   the page if it is mapped. Exits and terminates process if
-   any of the checks fail. */
+/* Validates user pointer. Checks that pointer is a valid
+   user vaddr. If the pointer is not mapped to physical memory,
+   the page fault handler will fetch the page if it is mapped.
+   Exits and terminates process if the check fails. */
 static void 
 check_usr_ptr (const void *usr_ptr)
 {
-  if (usr_ptr == NULL || !is_user_vaddr (usr_ptr)) 
+  if (!is_user_vaddr (usr_ptr))
     syscall_exit (-1);
 }
 

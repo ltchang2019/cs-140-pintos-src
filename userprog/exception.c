@@ -2,13 +2,13 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
+#include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "userprog/pagedir.h"
 #include "vm/frame.h"
 #include "vm/page.h"
 
@@ -191,7 +191,7 @@ page_fault (struct intr_frame *f)
            if (esp_ofs == PUSH_OFS || esp_ofs== PUSHA_OFS
                || fault_addr >= f->esp)
              {
-               spte = spte_create (upage, SWAP, NULL, 0, PGSIZE, write);
+               spte = spte_create (upage, SWAP, NULL, 0, 0, PGSIZE, write);
                spt_insert (&thread_current ()->spt, &spte->elem);
              }
         }
@@ -206,13 +206,14 @@ page_fault (struct intr_frame *f)
           uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
           if (kpage == NULL)
             exit_error (-1);
+
           if (pagedir_get_page (pd, upage) == NULL)
             {
               bool success = pagedir_set_page (pd, upage, kpage, writable);
               if (!success)
                 exit_error (-1);
             }
-          
+
           return;
         }
     }

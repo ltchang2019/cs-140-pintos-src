@@ -65,7 +65,7 @@ spt_free_table (struct hash *spt)
    fields. Returns a reference to the newly allocated entry. */
 struct spte *
 spte_create (void *page_uaddr, enum location loc,
-             struct file *file, off_t ofs,
+             struct file *file, off_t ofs, size_t swap_idx,
              size_t page_bytes, bool writable)
 {
   struct spte *spte = malloc (sizeof (struct spte));
@@ -73,6 +73,7 @@ spte_create (void *page_uaddr, enum location loc,
   spte->loc = loc;
   spte->file = file;
   spte->ofs = ofs;
+  spte->swap_idx = swap_idx;
   spte->page_bytes = page_bytes;
   spte->writable = writable;
 
