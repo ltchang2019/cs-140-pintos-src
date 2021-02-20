@@ -5,23 +5,24 @@
 #include <hash.h>
 #include "filesys/file.h"
 
-/* Location to write to if a page gets evicted. */
+/* Page location/type used to determine what to do when
+   a page needs to be evicted or read back into memory. */
 enum location
   {
-    SWAP,     /* In a swap slot on the swap partition. */
-    DISK,     /* Stored in a file on disk. */
-    ZERO,     /* A zero page. */
-    STACK
+    SWAP,  /* Identifies pages that should be evicted to swap. */
+    DISK,  /* Identifies pages that originate from disk. */
+    ZERO,  /* A zero page. */
+    STACK  /* A stack page. */
   };
 
 /* Supplemental page table (SPT) entry. */
 struct spte
   {
     void *page_uaddr;       /* User virtual address of the page. */
-    enum location loc;      /* Location of the page. */
-    struct file *file;      /* Reference to file if page on disk. */
-    off_t ofs;              /* Offset in file if page on disk. */
-    size_t swap_idx;        /* Index of swap slot if page in swap. */
+    enum location loc;      /* Page location/type. */
+    struct file *file;      /* Reference to file location is DISK. */
+    off_t ofs;              /* Offset in file if location is DISK. */
+    size_t swap_idx;        /* Index of swap slot if location is SWAP. */
     size_t page_bytes;      /* Number of non-zero bytes in page. */
     bool writable;          /* Indicates whether page is writable. */
     bool loaded;            /* Indicates whether page has been loaded. */

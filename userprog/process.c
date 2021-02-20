@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "userprog/fd.h"
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
-#include "userprog/tss.h"
-#include "userprog/fd.h"
 #include "userprog/p_info.h"
+#include "userprog/tss.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -21,8 +21,9 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
-#include "vm/page.h"
 #include "vm/mmap.h"
+#include "vm/page.h"
+#include "vm/swap.h"
 
 /* Limit on size of individual command-line argument. */
 #define ARGLEN_MAX 128
@@ -532,7 +533,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-  off_t file_pos = ofs;
+  off_t pos = ofs;
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
@@ -545,7 +546,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Create supplemental page table entry for this page
          and add it to SPT of current process. */
       enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
-      struct spte *spte = spte_create (upage, loc, file, file_pos, SIZE_MAX,
+      struct spte *spte = spte_create (upage, loc, file, pos, SWAP_DEFAULT,
                                        page_read_bytes, writable, false);
       spt_insert (&thread_current ()->spt, &spte->elem);
 
@@ -553,7 +554,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
-      file_pos += PGSIZE;
+      pos += PGSIZE;
     }
   return true;
 }
@@ -569,7 +570,7 @@ setup_stack (void **esp)
   
   /* Allocate and initialize first stack page at load time. */
   uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  struct spte *spte = spte_create (upage, STACK, NULL, 0, 0,
+  struct spte *spte = spte_create (upage, STACK, NULL, 0, SWAP_DEFAULT,
                                    PGSIZE, true, true);
   spt_insert (&thread_current ()->spt, &spte->elem);
 

@@ -1,6 +1,7 @@
 #include "vm/mmap.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
@@ -14,9 +15,8 @@
 static struct mmap_entry *mapid_to_mmap_entry (mapid_t mapid);
 static void munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t);
 
-/* Search through process's mmap_list for the mmap_entry
-   with the provided mapid. Return NULL if the entry doesn't 
-   exist. */
+/* Search through process's mmap_list for the mmap_entry with
+   the provided mapid. Return NULL if the entry doesn't exist. */
 static struct mmap_entry *
 mapid_to_mmap_entry (mapid_t mapid)
 {
@@ -91,7 +91,7 @@ mmap (int fd, void *addr)
 
       size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
       struct spte *spte = spte_create (addr + ofs, DISK, fresh_file, ofs,
-                                       SIZE_MAX, page_bytes, true, false);
+                                       SWAP_DEFAULT, page_bytes, true, false);
       spt_insert (&t->spt, &spte->elem);
     }
   
@@ -128,28 +128,21 @@ munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
       struct spte *spte = spte_lookup (curr_uaddr);
       ASSERT (spte != NULL);
 
+      /* Write page back to file if it has been written to. */
       if (pagedir_is_dirty (t->pagedir, curr_uaddr))
         {
-           lock_acquire (&filesys_lock);
-           file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
-           lock_release (&filesys_lock);
+          lock_acquire (&filesys_lock);
+          file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
+          lock_release (&filesys_lock);
         }
 
-      /* Free underlying page. */
+      /* Free underlying page if it is loaded in memory. */
       if (spte->loaded)
-        {
-          void *kaddr = pagedir_get_page (t->pagedir, curr_uaddr);
-          frame_free_page (kaddr);
-        }
+        frame_free_page (pagedir_get_page (t->pagedir, curr_uaddr));
 
       list_remove (&entry->elem);
       spt_delete (&t->spt, &spte->elem);
       free (spte);
-
-    //   TODO: NOT YET FREEING UNDERLYING PAGES FOR MMAPPED FILE
-    //   void *kaddr = pagedir_get_page (t->pagedir, curr_uaddr);
-    //   printf ("KADDR: %p", kaddr);
-    //   frame_free_page (kaddr);
     }
 }
 
