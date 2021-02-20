@@ -1,5 +1,6 @@
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -105,6 +106,11 @@ spte_free (struct hash_elem *he, void *aux UNUSED)
   struct spte *spte = hash_entry (he, struct spte, elem);
   struct thread *t = thread_current ();
   void *kaddr = pagedir_get_page (t->pagedir, spte->page_uaddr);
+
+  /* HACK HACK HACK. */
+  if (!spte->loaded && spte->loc == SWAP && spte->swap_idx != SIZE_MAX)
+    swap_free_slot (spte->swap_idx);
+
   if (spte->loaded)
     frame_free_page (kaddr);
   spt_delete (&t->spt, &spte->elem);

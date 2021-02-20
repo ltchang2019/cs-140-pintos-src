@@ -545,7 +545,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Create supplemental page table entry for this page
          and add it to SPT of current process. */
       enum location loc = (page_zero_bytes == PGSIZE) ? ZERO : DISK;
-      struct spte *spte = spte_create (upage, loc, file, file_pos, 0,
+      struct spte *spte = spte_create (upage, loc, file, file_pos, SIZE_MAX,
                                        page_read_bytes, writable, false);
       spt_insert (&thread_current ()->spt, &spte->elem);
 

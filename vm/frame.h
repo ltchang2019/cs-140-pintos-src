@@ -10,6 +10,7 @@ struct frame_entry
   {
      void *page_kaddr;     /* Kernel virtual address of page in frame. */
      struct spte *spte;    /* Reference to SPT entry for page in frame. */
+     struct thread *thread;
      struct lock lock;     /* Mutual exclusion for frames. */
   };
 

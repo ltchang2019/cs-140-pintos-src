@@ -17,6 +17,8 @@ static struct frame_entry *lead_hand;
 static struct frame_entry *lag_hand;
 static size_t free_frames;
 
+static size_t debug_counter = 0;
+
 static struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
 static void *frame_evict_page (void);
 
@@ -57,6 +59,7 @@ frame_table_init (size_t num_frames)
       struct frame_entry *f = frame_table_base + index;
       f->page_kaddr = NULL;
       f->spte = NULL;
+      f->thread = NULL;
       lock_init (&f->lock);
     }
 
@@ -91,10 +94,14 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   lock_acquire (&f->lock);
   f->page_kaddr = page_kaddr;
   f->spte = spte;
+  f->thread = thread_current ();
 
   /* Load data into the page depending on it's location. */
   if (spte->loc == ZERO || spte->loc == STACK)
-    memset (page_kaddr, 0, PGSIZE);
+    {
+      memset (page_kaddr, 0, PGSIZE);
+      //printf ("%zu\n", debug_counter++);
+    }
   else if (spte->loc == SWAP && !spte->loaded)
     swap_read_page (page_kaddr, spte->swap_idx);
   else if (spte->loc == DISK && !spte->loaded)
@@ -130,6 +137,7 @@ frame_free_page (void *page_kaddr)
   pagedir_clear_page(thread_current ()->pagedir, f->spte->page_uaddr);
   f->page_kaddr = NULL;
   f->spte = NULL;
+  f->thread = NULL;
 
   palloc_free_page (page_kaddr);
   lock_release (&f->lock);
@@ -144,26 +152,25 @@ frame_evict_page (void)
   /* Choose random page for now. */
   /* Old spte, new spte. */
   /* pagedir_clear_page, pagedir_set_page. */
-  struct thread *t = thread_current ();
   struct frame_entry *f = lead_hand;
+  struct thread *t = f->thread;
   lock_acquire (&f->lock);
   
-  lead_hand++;
-  if (lead_hand == frame_table_base + free_frames)
+  lead_hand = lead_hand + 10;
+  if (lead_hand >= frame_table_base + free_frames)
     lead_hand = frame_table_base;
 
   struct spte *spte = f->spte;
   void *upage = spte->page_uaddr;
 
-  if (pagedir_is_dirty (t->pagedir, upage) && spte->loc == SWAP)
+  //if (pagedir_is_dirty (t->pagedir, upage) && spte->loc == SWAP)
+  if (spte->loc == SWAP)
     {
       size_t swap_idx = swap_write_page (f->page_kaddr);
       spte->swap_idx = swap_idx;
     }
   else if (pagedir_is_dirty (t->pagedir, upage) && spte->loc == ZERO)
     {
-      //printf ("Writing buf to swap\n");
-      //printf ("%d\n", (int) *((char *)upage + 1));
       size_t swap_idx = swap_write_page (f->page_kaddr);
       spte->swap_idx = swap_idx;
       spte->loc = SWAP;
