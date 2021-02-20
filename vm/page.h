@@ -11,6 +11,7 @@ enum location
   {
     SWAP,  /* Identifies pages that should be evicted to swap. */
     DISK,  /* Identifies pages that originate from disk. */
+    MMAP,  /* Page for memory mapped file. */
     ZERO,  /* A zero page. */
     STACK  /* A stack page. */
   };
