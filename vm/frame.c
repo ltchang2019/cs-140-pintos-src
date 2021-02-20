@@ -16,6 +16,7 @@ static void *user_pool_base;
 static struct frame_entry *frame_table_base;
 
 /* Second chance clock algorithm for page eviction. */
+static struct lock frame_evict_lock;
 static struct frame_entry *lead_hand;
 static struct frame_entry *lag_hand;
 static size_t free_frames;
@@ -67,6 +68,9 @@ frame_table_init (size_t num_frames)
   /* Get base address of the user pool. */
   user_pool_base = palloc_get_user_pool_base ();
 
+  /* Initialize frame eviction lock. */
+  lock_init (&frame_evict_lock);
+
   /* Initialize leading and lagging hands. */
   lead_hand = frame_table_base;
   lag_hand = frame_table_base + (free_frames / 2);
@@ -101,7 +105,10 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   if (spte->loc == ZERO || spte->loc == STACK)
     memset (page_kaddr, 0, PGSIZE);
   else if (spte->loc == SWAP && !spte->loaded)
-    swap_read_page (page_kaddr, spte->swap_idx);
+    {
+      swap_read_page (page_kaddr, spte->swap_idx);
+      spte->swap_idx = SWAP_DEFAULT;
+    }
   else if (spte->loc == DISK && !spte->loaded)
     {
       /* Read the non-zero bytes of the page from the file on disk
@@ -146,13 +153,20 @@ frame_free_page (void *page_kaddr)
 static void *
 frame_evict_page (void)
 {
+  lock_acquire (&frame_evict_lock);
   /* CURRENTLY DOES NOT IMPLEMENT SECOND CHANCE CLOCK ALGORITHM. */
   struct frame_entry *f = lead_hand;
   
   /* Increment leading hand for page eviction. */
-  lead_hand = lead_hand + 10;
+  lead_hand = lead_hand + 1;
   if (lead_hand >= frame_table_base + free_frames)
     lead_hand = frame_table_base;
+  while (lead_hand->page_kaddr == NULL)
+    {
+      lead_hand = lead_hand + 1;
+      if (lead_hand >= frame_table_base + free_frames)
+        lead_hand = frame_table_base;
+    }
 
   lock_acquire (&f->lock);
   struct thread *t = f->thread;
@@ -170,15 +184,19 @@ frame_evict_page (void)
     }
   else if (spte->loc == DISK && pagedir_is_dirty (t->pagedir, upage))
     {
-      lock_acquire (&filesys_lock);
-      file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
-      lock_release (&filesys_lock);
+      //lock_acquire (&filesys_lock);
+      //file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
+      //lock_release (&filesys_lock);
+      size_t swap_idx = swap_write_page (f->page_kaddr);
+      spte->swap_idx = swap_idx;
+      spte->loc = SWAP;
     }
   
   /* Remove page mapping from owning thread to complete the eviction. */
   pagedir_clear_page (t->pagedir, upage);
   spte->loaded = false;
   lock_release (&f->lock);
+  lock_release (&frame_evict_lock);
 
   return f->page_kaddr;
 }
