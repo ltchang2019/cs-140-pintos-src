@@ -72,5 +72,7 @@ swap_read_page (void *kpage, size_t swap_idx)
 
   /* Set bit at SWAP_IDX to 0 to indicate the swap slot is free. */
   ASSERT (bitmap_test (swap->used_map, swap_idx));
+  lock_acquire (&swap->lock);
   bitmap_set (swap->used_map, swap_idx, false);
+  lock_release (&swap->lock);
 }

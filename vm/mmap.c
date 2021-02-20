@@ -91,7 +91,7 @@ mmap (int fd, void *addr)
 
       size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
       struct spte *spte = spte_create (addr + ofs, DISK, fresh_file, ofs,
-                                       0, page_bytes, true, false);
+                                       SIZE_MAX, page_bytes, true, false);
       spt_insert (&t->spt, &spte->elem);
     }
   

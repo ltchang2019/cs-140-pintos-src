@@ -82,12 +82,13 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   if (page_kaddr == NULL)
     {
       page_kaddr = frame_evict_page ();
-      if (page_kaddr == NULL)
-        return NULL;
+      ASSERT (page_kaddr != NULL);
     }
 
   /* Get index to available frame and set fields in frame. */
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
+
+  lock_acquire (&f->lock);
   f->page_kaddr = page_kaddr;
   f->spte = spte;
 
@@ -113,6 +114,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
     }
 
   spte->loaded = true;
+  lock_release (&f->lock);
   return page_kaddr;
 }
 
@@ -124,11 +126,13 @@ frame_free_page (void *page_kaddr)
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
   ASSERT (f != NULL);
   
+  lock_acquire (&f->lock);
   pagedir_clear_page(thread_current ()->pagedir, f->spte->page_uaddr);
   f->page_kaddr = NULL;
   f->spte = NULL;
 
   palloc_free_page (page_kaddr);
+  lock_release (&f->lock);
 }
 
 /* Evict a page from it's frame and return the kernel virtual
@@ -142,6 +146,7 @@ frame_evict_page (void)
   /* pagedir_clear_page, pagedir_set_page. */
   struct thread *t = thread_current ();
   struct frame_entry *f = lead_hand;
+  lock_acquire (&f->lock);
   
   lead_hand++;
   if (lead_hand == frame_table_base + free_frames)
@@ -178,5 +183,6 @@ frame_evict_page (void)
 
   pagedir_clear_page (t->pagedir, upage);
   spte->loaded = false;
+  lock_release (&f->lock);
   return f->page_kaddr;
 }
