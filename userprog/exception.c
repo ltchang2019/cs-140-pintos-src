@@ -189,7 +189,7 @@ page_fault (struct intr_frame *f)
            /* If stack access is valid, create a supplemental page table
               entry for the new stack page and add it to the SPT. */
            size_t esp_ofs = f->esp - fault_addr;
-           if (esp_ofs == PUSH_OFS || esp_ofs== PUSHA_OFS
+           if (esp_ofs == PUSH_OFS || esp_ofs == PUSHA_OFS
                || fault_addr >= f->esp)
              {
                spte = spte_create (upage, STACK, NULL, 0, SWAP_DEFAULT,

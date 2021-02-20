@@ -107,8 +107,11 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   if (spte->loc == ZERO || spte->loc == STACK)
     memset (page_kaddr, 0, PGSIZE);
   else if (spte->loc == SWAP && !spte->loaded)
-    swap_read_page (page_kaddr, spte->swap_idx);
-  else if (spte->loc == DISK && !spte->loaded)
+    {
+      swap_read_page (page_kaddr, spte->swap_idx);
+      spte->swap_idx = SWAP_DEFAULT;
+    }
+  else if ((spte->loc == DISK || spte->loc == MMAP) && !spte->loaded)
     {
       /* Read the non-zero bytes of the page from the file on disk
          and zero the remaining bytes. */
@@ -206,9 +209,12 @@ frame_evict_page (void)
   struct frame_entry *f = lead_hand;
   
   /* Increment leading hand for page eviction. */
-  lead_hand = lead_hand + 10;
-  if (lead_hand >= frame_table_base + free_frames)
-    lead_hand = frame_table_base;
+  do
+    {
+      lead_hand = lead_hand + 1;
+      if (lead_hand >= frame_table_base + free_frames)
+        lead_hand = frame_table_base;
+    } while (lead_hand->page_kaddr == NULL);
 
   lock_acquire (&f->lock);
   struct thread *t = f->thread;
@@ -217,13 +223,14 @@ frame_evict_page (void)
   /* Write current page in frame to disk or swap if necessary. */
   if (spte->loc == SWAP ||
       spte->loc == STACK ||
-      (spte->loc == ZERO && pagedir_is_dirty (t->pagedir, spte->page_uaddr)))
+      (spte->loc == ZERO && pagedir_is_dirty (t->pagedir, upage)) ||
+      (spte->loc == DISK && pagedir_is_dirty (t->pagedir, upage)))
     {
       size_t swap_idx = swap_write_page (f->page_kaddr);
       spte->swap_idx = swap_idx;
       spte->loc = SWAP;
     }
-  else if (spte->loc == DISK && pagedir_is_dirty (t->pagedir, spte->page_uaddr))
+  else if (spte->loc == MMAP && pagedir_is_dirty (t->pagedir, upage))
     {
       lock_acquire (&filesys_lock);
       file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
