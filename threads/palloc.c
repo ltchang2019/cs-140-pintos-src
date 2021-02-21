@@ -41,11 +41,19 @@ static void init_pool (struct pool *, void *base, size_t page_cnt,
 static bool page_from_pool (const struct pool *, void *page);
 
 #ifdef VM
+static size_t user_pages;
+
+size_t
+palloc_get_num_user_pages (void)
+{
+  ASSERT (user_pages != 0);
+  return user_pages;
+}
+
 void *
 palloc_get_user_pool_base (void)
 {
   ASSERT (user_pool.base != NULL);
-  
   return (void *) user_pool.base;
 }
 #endif
@@ -178,6 +186,8 @@ init_pool (struct pool *p, void *base, size_t page_cnt, const char *name)
   lock_init (&p->lock);
   p->used_map = bitmap_create_in_buf (page_cnt, base, bm_pages * PGSIZE);
   p->base = base + bm_pages * PGSIZE;
+
+  user_pages = page_cnt;
 }
 
 /* Returns true if PAGE was allocated from POOL,

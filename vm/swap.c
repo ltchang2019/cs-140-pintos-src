@@ -5,14 +5,15 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 
+/* Number of sectors that fit into a page. */
 #define SECTORS_PER_PG (PGSIZE / BLOCK_SECTOR_SIZE)
 
 /* Swap table. */
 struct swap
   {
-    struct lock lock;                   /* Mutual exclusion. */
-    struct bitmap *used_map;            /* Bitmap of free swap slots. */
-    struct block *block;                /* Reference to swap block. */
+    struct lock lock;         /* Mutual exclusion. */
+    struct bitmap *used_map;  /* Bitmap of free swap slots. */
+    struct block *block;      /* Reference to swap block. */
   };
 
 /* Reference to the swap table. */
@@ -23,6 +24,9 @@ void
 swap_table_init (void)
 {
   swap = malloc (sizeof (struct swap));
+  if (swap == NULL)
+    PANIC ("swap_init: failed to allocate swap table");
+
   struct block *swap_block = block_get_role (BLOCK_SWAP);
   block_sector_t swap_size = block_size (swap_block) / SECTORS_PER_PG;
   lock_init (&swap->lock);
@@ -44,14 +48,10 @@ swap_write_page (const void *kpage)
     PANIC ("swap_get_slot: out of swap slots");
   
   /* Write page in BLOCK_SECTOR_SIZE chunks to the swap slot. */
-  block_sector_t block_sector = swap_idx * SECTORS_PER_PG;
-  uint8_t *page_sector = (void *) kpage;
-  for (size_t sector = 0; sector < SECTORS_PER_PG; sector++)
-    {
-      block_write (swap->block, block_sector, page_sector);
-      block_sector++;
-      page_sector += BLOCK_SECTOR_SIZE;
-    }
+  block_sector_t sector = swap_idx * SECTORS_PER_PG;
+  uint8_t *ofs = (void *) kpage;
+  for (size_t idx = 0; idx < SECTORS_PER_PG; idx++)
+    block_write (swap->block, sector + idx, ofs + idx * BLOCK_SECTOR_SIZE);
 
   return swap_idx;
 }
@@ -61,16 +61,22 @@ swap_write_page (const void *kpage)
 void
 swap_read_page (void *kpage, size_t swap_idx)
 {
-  block_sector_t block_sector = swap_idx * SECTORS_PER_PG;
-  uint8_t *page_sector = kpage;
-  for (size_t sector = 0; sector < SECTORS_PER_PG; sector++)
-    {
-      block_read (swap->block, block_sector, page_sector);
-      block_sector++;
-      page_sector += BLOCK_SECTOR_SIZE;
-    }
+  block_sector_t sector = swap_idx * SECTORS_PER_PG;
+  uint8_t *ofs = (void *) kpage;
+  for (size_t idx = 0; idx < SECTORS_PER_PG; idx++)
+    block_read (swap->block, sector + idx, ofs + idx * BLOCK_SECTOR_SIZE);
 
-  /* Set bit at SWAP_IDX to 0 to indicate the swap slot is free. */
+  /* Set bit at SWAP_IDX to 0 to indicate the swap slot is now free. */
+  swap_free_slot (swap_idx);
+}
+
+/* Frees a swap slot by setting it's index bit in the bitmap to 0. */
+void
+swap_free_slot (size_t swap_idx)
+{
   ASSERT (bitmap_test (swap->used_map, swap_idx));
+
+  lock_acquire (&swap->lock);
   bitmap_set (swap->used_map, swap_idx, false);
+  lock_release (&swap->lock);
 }

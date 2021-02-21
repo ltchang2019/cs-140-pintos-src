@@ -19,6 +19,7 @@ void palloc_free_multiple (void *, size_t page_cnt);
 
 #ifdef VM
 void *palloc_get_user_pool_base (void);
+size_t palloc_get_num_user_pages (void);
 #endif
 
 #endif /* threads/palloc.h */

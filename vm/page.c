@@ -1,7 +1,10 @@
 #include "vm/page.h"
+#include "vm/frame.h"
+#include "vm/swap.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 
 static unsigned spte_hash_func (const struct hash_elem *e, void *aux);
@@ -29,8 +32,8 @@ spte_less_func (const struct hash_elem *a,
   return spte_a->page_uaddr < spte_b->page_uaddr;
 }
 
-/* Initialize the supplemental page table for a process. Terminates
-   the process if initialization is unsuccessful. */
+/* Initialize the supplemental page table for a process.
+   Terminates the process if initialization is unsuccessful. */
 void 
 spt_init (struct hash *hash_table)
 {
@@ -62,13 +65,17 @@ spt_free_table (struct hash *spt)
 }
 
 /* Creates a supplemental page table entry and initializes it's
-   fields. Returns a reference to the newly allocated entry. */
+   fields. Returns a reference to the newly allocated entry.
+   Terminates the process if allocation is unsuccessful. */
 struct spte *
 spte_create (void *page_uaddr, enum location loc,
              struct file *file, off_t ofs, size_t swap_idx,
-             size_t page_bytes, bool writable)
+             size_t page_bytes, bool writable, bool loaded)
 {
   struct spte *spte = malloc (sizeof (struct spte));
+  if (spte == NULL)
+    exit_error (-1);
+
   spte->page_uaddr = page_uaddr;
   spte->loc = loc;
   spte->file = file;
@@ -76,6 +83,7 @@ spte_create (void *page_uaddr, enum location loc,
   spte->swap_idx = swap_idx;
   spte->page_bytes = page_bytes;
   spte->writable = writable;
+  spte->loaded = loaded;
 
   return spte;
 }
@@ -94,11 +102,23 @@ spte_lookup (void *page_uaddr)
   return he != NULL ? hash_entry (he, struct spte, elem) : NULL;
 }
 
-/* Deallocates the supplemental page table entry linked to the
-   hash element in the SPT. */
+/* Removes and deallocates the supplemental page table entry
+   linked to the hash element HE in the SPT. */
 static void 
 spte_free (struct hash_elem *he, void *aux UNUSED)
 {
+  struct thread *t = thread_current ();
   struct spte *spte = hash_entry (he, struct spte, elem);
+  void *kaddr = pagedir_get_page (t->pagedir, spte->page_uaddr);
+
+  /* Frees the swap slot if the page is currently written out
+     to swap. Otherwise, if page is loaded into memory, frees
+     the page and the frame that contains it. */
+  if (!spte->loaded && spte->loc == SWAP)
+    swap_free_slot (spte->swap_idx);
+  else if (spte->loaded)
+    frame_free_page (kaddr);
+
+  spt_delete (&t->spt, &spte->elem);
   free (spte);
 }
