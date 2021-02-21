@@ -65,7 +65,7 @@ frame_table_init (void)
   /* Get base address of the user pool. */
   user_pool_base = palloc_get_user_pool_base ();
 
-  /* Initialize leading and lagging hands. */
+  /* Initialize leading and lagging hands for clock algorithm. */
   lag_hand = frame_table_base;
   lead_hand = frame_table_base + (free_frames / 4);
 }
@@ -82,15 +82,14 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   /* Get a page of memory. Evict a page if necessary. */  
   void *page_kaddr = palloc_get_page (flags);
   if (page_kaddr == NULL)
-    {
-      page_kaddr = frame_evict_page ();
-      ASSERT (page_kaddr != NULL);
-    }
+    page_kaddr = frame_evict_page ();
+
+  ASSERT (page_kaddr != NULL);
 
   /* Get index to available frame and set fields in frame. */
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
   lock_acquire (&f->lock);
-  f->page_kaddr = page_kaddr; // potentially redundant if evicted frame
+  f->page_kaddr = page_kaddr;
   f->spte = spte;
   f->thread = thread_current ();
 
@@ -120,6 +119,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
 
   spte->loaded = true;
   lock_release (&f->lock);
+
   return page_kaddr;
 }
 
@@ -133,44 +133,64 @@ frame_free_page (void *page_kaddr)
   
   lock_acquire (&f->lock);
   pagedir_clear_page (thread_current ()->pagedir, f->spte->page_uaddr);
-  f->thread = NULL;
+  f->page_kaddr = NULL;
   f->spte = NULL;
-  lock_release (&f->lock);
+  f->thread = NULL;
   palloc_free_page (page_kaddr);
+  lock_release (&f->lock);
 }
 
+/* Find a frame to evict according to the second chance clock
+   algorithm. The lead hand clears the access bit and the lag
+   hand evicts a page if it's access bit is 0. */
 static struct frame_entry *
 clock_find_frame (void)
 {
   while (true)
     {
-      if (lock_try_acquire (&lag_hand->lock))
-        {
-          ASSERT (lock_held_by_current_thread (&lag_hand->lock));
-          if (lag_hand->thread == NULL)
-            return lag_hand;
-
-          if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
-                                    lag_hand->spte->page_uaddr))
-            return lag_hand;
-
-          lock_release (&lag_hand->lock);
-        }
-        
+      /* Clear access bit of page that lead hand points to. */
       if (lead_hand->thread != NULL)
         pagedir_set_accessed (lead_hand->thread->pagedir, 
                               lead_hand->spte->page_uaddr, false);
+
+      /* Get lock on page that is candidate for eviction. */
+      if (lock_try_acquire (&lag_hand->lock))
+        {
+          ASSERT (lock_held_by_current_thread (&lag_hand->lock));
+
+          /* Advance clock hands and return page to be evicted. */
+          if (lag_hand->thread == NULL)
+            {
+              struct frame_entry *f = lag_hand;
+              clock_advance ();
+              return f;
+            }
+          else if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
+                                         lag_hand->spte->page_uaddr))
+            {
+              struct frame_entry *f = lag_hand;
+              clock_advance ();
+              return f;
+            }
+          
+          lock_release (&lag_hand->lock);
+        }
+      
+      /* Eviction candidate is still being accessed, continue
+         searching for page to evict by advancing clock hands. */
       clock_advance ();
     }
 }
 
+/* Advance the lead and lag hands for the clock algorithm by
+   one frame, wrapping around to the beginning if the end of
+   the frame table is reached. */
 static void
 clock_advance (void)
 {  
-  ++lead_hand, ++lag_hand;
-  if (lead_hand >= frame_table_base + free_frames)
+  if (++lead_hand >= frame_table_base + free_frames)
     lead_hand = frame_table_base;
-  if (lag_hand >= frame_table_base + free_frames)
+  if (++lag_hand >= frame_table_base + free_frames)
     lag_hand = frame_table_base;
 }
 
@@ -207,8 +227,8 @@ frame_evict_page (void)
   pagedir_clear_page (t->pagedir, spte->page_uaddr);
   f->thread = NULL;
   f->spte = NULL;
-  lock_release (&f->lock);
   spte->loaded = false;
+  lock_release (&f->lock);
 
   return f->page_kaddr;
 }

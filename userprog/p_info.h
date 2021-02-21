@@ -1,11 +1,12 @@
 #ifndef USERPROG_P_INFO_H
 #define USERPROG_P_INFO_H
 
-#include <stdint.h>
-#include <stdbool.h>
 #include <list.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include "threads/thread.h"
 
+/* Thread ID. */
 typedef int tid_t;
 
 /* Process info struct. Contains information necessary for

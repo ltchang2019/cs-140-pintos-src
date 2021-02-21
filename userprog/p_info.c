@@ -33,7 +33,9 @@ child_p_info_by_tid (tid_t tid)
       struct p_info *p_info = list_entry (curr, struct p_info, elem);
       if (p_info->tid == tid) 
         return p_info;
+
       curr = list_next (curr);
     }
+
   return NULL;
 }

@@ -1,7 +1,7 @@
 #include "userprog/fd.h"
 #include "filesys/file.h"
-#include "threads/thread.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 
 /* Returns a pointer to the file associated with FD in current
    process's set of open file descriptors, or NULL if none. */

@@ -41,19 +41,23 @@ static void init_pool (struct pool *, void *base, size_t page_cnt,
 static bool page_from_pool (const struct pool *, void *page);
 
 #ifdef VM
-static size_t user_pages;
+static size_t user_pages;  /* Number of pages in user pool. */
 
+/* Returns the number of user pages available in the user pool. */
 size_t
 palloc_get_num_user_pages (void)
 {
   ASSERT (user_pages != 0);
+
   return user_pages;
 }
 
+/* Returns the base address of the user pool. */
 void *
 palloc_get_user_pool_base (void)
 {
   ASSERT (user_pool.base != NULL);
+  
   return (void *) user_pool.base;
 }
 #endif
