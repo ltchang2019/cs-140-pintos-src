@@ -159,8 +159,14 @@ clock_find_frame (void)
           ASSERT (lock_held_by_current_thread (&lag_hand->lock));
 
           /* Advance clock hands and return page to be evicted. */
-          if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
-                                    lag_hand->spte->page_uaddr))
+          if (lag_hand->thread == NULL)
+            {
+              struct frame_entry *f = lag_hand;
+              clock_advance ();
+              return f;
+            }
+          else if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
+                                         lag_hand->spte->page_uaddr))
             {
               struct frame_entry *f = lag_hand;
               clock_advance ();
