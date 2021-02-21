@@ -155,8 +155,8 @@ munmap_all (void)
 
   while (!list_empty (&t->mmap_list))
     {
-       struct list_elem *elem = list_pop_front (&t->mmap_list);
-       struct mmap_entry *me = list_entry (elem, struct mmap_entry, elem);
-       munmap_by_mmap_entry (me, t);
+      struct list_elem *elem = list_pop_front (&t->mmap_list);
+      struct mmap_entry *me = list_entry (elem, struct mmap_entry, elem);
+      munmap_by_mmap_entry (me, t);
     }
 }
