@@ -103,7 +103,7 @@ main (void)
   malloc_init ();
   paging_init ();
 #ifdef VM
-  frame_table_init (user_page_limit);
+  frame_table_init ();
 #endif
 
   /* Segmentation. */

@@ -205,7 +205,7 @@ page_fault (struct intr_frame *f)
         {
           bool writable = spte->writable;
           uintptr_t *pd = thread_current ()->pagedir;
-          uint8_t *kpage = frame_alloc_page (PAL_USER, spte);
+          void *kpage = frame_alloc_page (PAL_USER, spte);
           if (kpage == NULL)
             exit_error (-1);
           if (pagedir_get_page (pd, upage) == NULL)

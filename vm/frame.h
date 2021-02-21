@@ -14,7 +14,7 @@ struct frame_entry
      struct lock lock;       /* Mutual exclusion. */
   };
 
-void frame_table_init (size_t num_frames);
+void frame_table_init (void);
 void *frame_alloc_page (enum palloc_flags flags, struct spte *spte);
 void frame_free_page (void *page_kaddr);
 
