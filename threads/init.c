@@ -134,6 +134,7 @@ main (void)
   filesys_init (format_filesys);
 #endif
 #ifdef VM
+  /* Initialize swap partition. */
   swap_table_init ();
 #endif
 

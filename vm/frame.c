@@ -65,7 +65,7 @@ frame_table_init (void)
   /* Get base address of the user pool. */
   user_pool_base = palloc_get_user_pool_base ();
 
-  /* Initialize leading and lagging hands. */
+  /* Initialize leading and lagging hands for clock algorithm. */
   lag_hand = frame_table_base;
   lead_hand = frame_table_base + (free_frames / 4);
 }
@@ -133,10 +133,11 @@ frame_free_page (void *page_kaddr)
   
   lock_acquire (&f->lock);
   pagedir_clear_page (thread_current ()->pagedir, f->spte->page_uaddr);
-  f->thread = NULL;
+  f->page_kaddr = NULL;
   f->spte = NULL;
-  lock_release (&f->lock);
+  f->thread = NULL;
   palloc_free_page (page_kaddr);
+  lock_release (&f->lock);
 }
 
 static struct frame_entry *
@@ -148,7 +149,11 @@ clock_find_frame (void)
         {
           ASSERT (lock_held_by_current_thread (&lag_hand->lock));
           if (lag_hand->thread == NULL)
-            return lag_hand;
+            {
+              clock_advance ();
+              continue;
+            }
+            //return lag_hand;
 
           if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
                                     lag_hand->spte->page_uaddr))
@@ -207,8 +212,8 @@ frame_evict_page (void)
   pagedir_clear_page (t->pagedir, spte->page_uaddr);
   f->thread = NULL;
   f->spte = NULL;
-  lock_release (&f->lock);
   spte->loaded = false;
+  lock_release (&f->lock);
 
   return f->page_kaddr;
 }
