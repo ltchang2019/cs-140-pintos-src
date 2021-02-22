@@ -18,6 +18,7 @@ static struct frame_entry *frame_table_base;
 /* Second chance clock algorithm for page eviction. */
 static struct frame_entry *lead_hand;
 static struct frame_entry *lag_hand;
+static struct lock clock_lock;
 static size_t free_frames;
 
 static struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
@@ -61,6 +62,9 @@ frame_table_init (void)
       f->thread = NULL;
       lock_init (&f->lock);
     }
+
+  /* Initialize lock on clock algorithm usage. */
+  lock_init (&clock_lock);
 
   /* Get base address of the user pool. */
   user_pool_base = palloc_get_user_pool_base ();
@@ -124,7 +128,10 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
 }
 
 /* Remove a page with kernel virtual address PAGE_KADDR from
-   it's frame and free the page. */
+   it's frame and free the page. NOTE that a process must obtain
+   the frame's lock to clear the frame's fields. This ensures that 
+   a process cannot set the frame's fields to NULL while another 
+   process is reading that frame's data. */
 void
 frame_free_page (void *page_kaddr)
 {
@@ -142,15 +149,17 @@ frame_free_page (void *page_kaddr)
 
 /* Find a frame to evict according to the second chance clock
    algorithm. The lead hand clears the access bit and the lag
-   hand evicts a page if it's access bit is 0. */
+   hand evicts a page if it's access bit is 0. NOTE that access
+   to the clock algorithm is mutually exclusive. */
 static struct frame_entry *
 clock_find_frame (void)
 {
+  ASSERT (lock_held_by_current_thread (&clock_lock));
   while (true)
     {
       /* Clear access bit of page that lead hand points to. */
       if (lead_hand->thread != NULL)
-        pagedir_set_accessed (lead_hand->thread->pagedir, 
+        pagedir_set_accessed (lead_hand->thread->pagedir,
                               lead_hand->spte->page_uaddr, false);
 
       /* Get lock on page that is candidate for eviction. */
@@ -189,7 +198,7 @@ clock_find_frame (void)
    the frame table is reached. */
 static void
 clock_advance (void)
-{  
+{
   if (++lead_hand >= frame_table_base + free_frames)
     lead_hand = frame_table_base;
   if (++lag_hand >= frame_table_base + free_frames)
@@ -201,8 +210,10 @@ clock_advance (void)
 static void *
 frame_evict_page (void)
 {
+  lock_acquire (&clock_lock);
   struct frame_entry *f = clock_find_frame ();
   ASSERT (lock_held_by_current_thread (&f->lock));
+  lock_release (&clock_lock);
   
   struct thread *t = f->thread;
   struct spte *spte = f->spte;
