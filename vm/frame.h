@@ -11,7 +11,8 @@ struct frame_entry
      void *page_kaddr;       /* Kernel virtual address of page in frame. */
      struct spte *spte;      /* Reference to SPT entry for page in frame. */
      struct thread *thread;  /* Reference to process that owns frame. */
-     struct lock lock;       /* Mutual exclusion. */
+     struct lock lock;       /* Mutual exclusion. Acquiring lock effectively
+                                pins frame. */
   };
 
 void frame_table_init (void);

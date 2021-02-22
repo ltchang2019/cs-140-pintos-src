@@ -7,9 +7,9 @@
    a pointer to it's associated file struct. */
 struct fd_entry
   {
-    int fd;                           /* Non-negative integer descriptor. */
-    struct file *file;                /* Reference to open file. */
-    struct list_elem elem;            /* List element. */
+    int fd;                 /* Non-negative integer descriptor. */
+    struct file *file;      /* Reference to open file. */
+    struct list_elem elem;  /* List element. */
   };
 
 struct file *fd_to_file (int fd);

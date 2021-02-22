@@ -136,8 +136,8 @@ frame_free_page (void *page_kaddr)
   f->page_kaddr = NULL;
   f->spte = NULL;
   f->thread = NULL;
-  palloc_free_page (page_kaddr);
   lock_release (&f->lock);
+  palloc_free_page (page_kaddr); 
 }
 
 /* Find a frame to evict according to the second chance clock
@@ -180,6 +180,8 @@ clock_find_frame (void)
          searching for page to evict by advancing clock hands. */
       clock_advance ();
     }
+    
+    NOT_REACHED ();
 }
 
 /* Advance the lead and lag hands for the clock algorithm by

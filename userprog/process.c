@@ -147,7 +147,8 @@ start_process (void *aux UNUSED)
 
   struct thread *t = thread_current ();
 
-  /* Initialize fd table, supplemental page table, and mmap_list. */
+  /* Initialize fd list, child process info list,
+     supplemental page table, and mmap_list. */
   t->fd_counter = 2;
   list_init (&t->fd_list);
   list_init (&t->child_p_info_list);
