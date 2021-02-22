@@ -5,12 +5,13 @@
 #include <hash.h>
 #include "filesys/file.h"
 
-/* Page location/type used to determine what to do when
-   a page needs to be evicted or read back into memory. */
+/* Page location/type used to determine what to do with the
+   data in a page when it is first allocated, needs to be
+   evicted, or needs to be freed. */
 enum location
   {
-    SWAP,  /* Identifies pages that should be evicted to swap. */
-    DISK,  /* Identifies pages that originate from disk. */
+    SWAP,  /* Pages that should be written to and read back from swap. */
+    DISK,  /* Pages that should be written to and read back from disk. */
     MMAP,  /* Page for memory mapped file. */
     ZERO,  /* A zero page. */
     STACK  /* A stack page. */
@@ -21,12 +22,12 @@ struct spte
   {
     void *page_uaddr;       /* User virtual address of the page. */
     enum location loc;      /* Page location/type. */
-    struct file *file;      /* Reference to file location is DISK. */
-    off_t ofs;              /* Offset in file if location is DISK. */
-    size_t swap_idx;        /* Index of swap slot if location is SWAP. */
-    size_t page_bytes;      /* Number of non-zero bytes in page. */
-    bool writable;          /* Indicates whether page is writable. */
-    bool loaded;            /* Indicates whether page has been loaded. */
+    struct file *file;      /* Reference to file if location is DISK. */
+    off_t ofs;              /* Offset in file if page location is DISK. */
+    size_t swap_idx;        /* Index of swap slot if page location is SWAP. */
+    size_t page_bytes;      /* Sequence of page data that is non-zero. */ 
+    bool writable;          /* Indicates if page is writable or read only. */
+    bool loaded;            /* Indicates if page has been loaded. */
     struct hash_elem elem;  /* Hash element. */
   };
 

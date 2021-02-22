@@ -181,9 +181,10 @@ page_fault (struct intr_frame *f)
             f->esp = thread_current ()->esp;
 
           /* Terminate process if faulting address is an attempt
-             to access stack beyond the stack size limit (8 MB). */
+             to access stack beyond the stack size limit (8 MB) or
+             is in kernel address space. */
           size_t stack_access = PHYS_BASE - f->esp;
-          if (stack_access > STACK_LIMIT)
+          if (stack_access > STACK_LIMIT || fault_addr >= PHYS_BASE)
             exit_error (-1);
 
           /* If stack access is valid, create a supplemental page table
