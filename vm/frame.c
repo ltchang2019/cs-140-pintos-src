@@ -143,8 +143,8 @@ frame_free_page (void *page_kaddr)
   f->page_kaddr = NULL;
   f->spte = NULL;
   f->thread = NULL;
-  lock_release (&f->lock);
   palloc_free_page (page_kaddr); 
+  lock_release (&f->lock);
 }
 
 /* Find a frame to evict according to the second chance clock
