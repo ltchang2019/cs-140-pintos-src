@@ -56,14 +56,6 @@ spt_delete (struct hash *spt, struct hash_elem *he)
   hash_delete (spt, he);
 }
 
-/* Frees the supplemental page table of a process by deallocating
-   all SPT entries and then deallocating the table itself. */
-void 
-spt_free_table (struct hash *spt)
-{
-  hash_destroy (spt, spte_free);
-}
-
 /* Creates a supplemental page table entry and initializes it's
    fields. Returns a reference to the newly allocated entry.
    Terminates the process if allocation is unsuccessful. */
@@ -102,8 +94,18 @@ spte_lookup (void *page_uaddr)
   return he != NULL ? hash_entry (he, struct spte, elem) : NULL;
 }
 
+/* Frees the supplemental page table of a process by deallocating
+   all SPT entries and then deallocating the table itself. Called
+   in process_exit(). */
+void 
+spt_free_table (struct hash *spt)
+{
+  hash_destroy (spt, spte_free);
+}
+
 /* Removes and deallocates the supplemental page table entry
-   linked to the hash element HE in the SPT. */
+   linked to the hash element HE in the SPT. Called on each 
+   of a process's sptes in process_exit(). */
 static void 
 spte_free (struct hash_elem *he, void *aux UNUSED)
 {

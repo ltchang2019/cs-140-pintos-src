@@ -35,7 +35,7 @@ mapid_to_mmap_entry (mapid_t mapid)
 }
 
 /* Check that all pages to be mmapped have valid addresses, don't 
-overlap with an existing page's uaddr, and are properly aligned. */
+   overlap with an existing page's uaddr, and are properly aligned. */
 static bool 
 is_valid_mmap_region (void *start_uaddr, int filesize)
 {
@@ -59,7 +59,7 @@ is_valid_mmap_region (void *start_uaddr, int filesize)
    mmap_entry for the process, then fill the process's spt with 
    sptes with the file*, byte offset, and number of bytes in that 
    page. The returned mapid is simply the value of the process's 
-   mapid_counter. For any type of bad input, return -1. */
+   mapid_counter. For any form of bad input, return -1. */
 mapid_t
 mmap (int fd, void *addr)
 {
@@ -78,11 +78,13 @@ mmap (int fd, void *addr)
   if (!is_valid_mmap_region (addr, filesize))
     return -1;
   
+  /* Insert new mmap_entry into process's mmap_list. */
   struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
   me->mapid = t->mapid_counter++;
   me->uaddr = addr;
   list_push_back (&t->mmap_list, &me->elem);
 
+  /* Create new spte for every page in mapping. */
   for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
     {
       lock_acquire (&filesys_lock);
@@ -118,6 +120,7 @@ static void
 munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
 {
   struct file *file = spte_lookup (entry->uaddr)->file;
+
   lock_acquire (&filesys_lock);
   int filesize = file_length (file);
   lock_release (&filesys_lock);

@@ -9,6 +9,7 @@
 #include "threads/synch.h"
 #include "userprog/p_info.h"
 
+/* Thread ID. */
 typedef int tid_t;
 
 /* States in a thread's life cycle. */
