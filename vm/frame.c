@@ -128,7 +128,10 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
 }
 
 /* Remove a page with kernel virtual address PAGE_KADDR from
-   it's frame and free the page. */
+   it's frame and free the page. NOTE that a process must obtain
+   the frame's lock to clear the frame's fields. This ensures that 
+   a process cannot set the frame's fields to NULL while another 
+   process is reading that frame's data. */
 void
 frame_free_page (void *page_kaddr)
 {
@@ -146,7 +149,8 @@ frame_free_page (void *page_kaddr)
 
 /* Find a frame to evict according to the second chance clock
    algorithm. The lead hand clears the access bit and the lag
-   hand evicts a page if it's access bit is 0. */
+   hand evicts a page if it's access bit is 0. NOTE that access
+   to the clock algorithm is mutually exclusive. */
 static struct frame_entry *
 clock_find_frame (void)
 {

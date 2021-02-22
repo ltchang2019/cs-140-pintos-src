@@ -105,7 +105,11 @@ spt_free_table (struct hash *spt)
 
 /* Removes and deallocates the supplemental page table entry
    linked to the hash element HE in the SPT. Called on each 
-   of a process's sptes in process_exit(). */
+   of a process's sptes in process_exit(). NOTE that this also
+   clears each frame the process owns, which requires the process
+   to acquire each frame's lock before clearing the frame fields. 
+   This ensures that a process cannot exit and set frame->thread 
+   to NULL while another process is reading that frame's data. */
 static void 
 spte_free (struct hash_elem *he, void *aux UNUSED)
 {
