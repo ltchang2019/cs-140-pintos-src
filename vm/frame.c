@@ -90,7 +90,12 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   if (page_kaddr == NULL)
     page_kaddr = frame_evict_page ();
 
-  ASSERT (page_kaddr != NULL);
+  /* In the highly unlikely case that both palloc_get_page 
+     and our eviction algorithm were unable to find a page,
+     return NULL. This will cause the page fault handler to
+     cause the process to exit with status -1. */
+  if(page_kaddr == NULL)
+    return NULL;
 
   /* Get index to available frame and set fields in frame. */
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
@@ -225,6 +230,11 @@ frame_evict_page (void)
   struct frame_entry *f = clock_find_frame ();
   ASSERT (lock_held_by_current_thread (&f->lock));
   lock_release (&clock_lock);
+
+  /* If clock algorithm completed a full cycle through the frame table
+     and could not find a frame to evict, return NULL. */
+  if (f == NULL)
+    return NULL;
   
   struct thread *t = f->thread;
   struct spte *spte = f->spte;
