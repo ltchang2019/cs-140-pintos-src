@@ -110,7 +110,6 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
     }
   lock_release (&eviction_lock);
 
-  /* Get index to available frame and set fields in frame. */
   f->spte = spte;
   f->thread = thread_current ();
 
