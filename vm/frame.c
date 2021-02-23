@@ -23,7 +23,7 @@ static size_t clock_timeout;
 static size_t frame_cnt;
 
 static struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
-static void *frame_evict_page (void);
+static struct frame_entry *frame_evict_page (void);
 static struct frame_entry *clock_find_frame (void);
 static void clock_advance (void);
 
@@ -92,35 +92,34 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   void *page_kaddr = palloc_get_page (flags);
   if (page_kaddr == NULL)
     {
-      page_kaddr = frame_evict_page ();
+      f = frame_evict_page ();
 
       /* In the highly unlikely case that both palloc_get_page 
         and our eviction algorithm were unable to find a page,
         return NULL. */
-      if(page_kaddr == NULL)
+      if(f == NULL)
         return NULL;
 
-      f = page_kaddr_to_frame_addr (page_kaddr);
       ASSERT (lock_held_by_current_thread (&f->lock));
     }
   else
     {
       f = page_kaddr_to_frame_addr (page_kaddr);
       lock_acquire (&f->lock);
+      f->page_kaddr = page_kaddr;
     }
   lock_release (&eviction_lock);
 
   /* Get index to available frame and set fields in frame. */
-  f->page_kaddr = page_kaddr;
   f->spte = spte;
   f->thread = thread_current ();
 
   /* Load data into the page depending on it's location/type. */
   if (spte->loc == ZERO || spte->loc == STACK)
-    memset (page_kaddr, 0, PGSIZE);
+    memset (f->page_kaddr, 0, PGSIZE);
   else if (spte->loc == SWAP && !spte->loaded)
     {
-      swap_read_page (page_kaddr, spte->swap_idx);
+      swap_read_page (f->page_kaddr, spte->swap_idx);
       spte->swap_idx = SWAP_DEFAULT;
     }
   else if ((spte->loc == DISK || spte->loc == MMAP) && !spte->loaded)
@@ -128,23 +127,23 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       /* Read the non-zero bytes of the page from the file on disk
          and zero the remaining bytes. */
       lock_acquire (&filesys_lock);
-      off_t bytes_read = file_read_at (spte->file, page_kaddr,
+      off_t bytes_read = file_read_at (spte->file, f->page_kaddr,
                                        spte->page_bytes, spte->ofs);
       lock_release (&filesys_lock);
 
       /* If file read error, free page and return NULL. */
       if (bytes_read != (int) spte->page_bytes)
         {
-          palloc_free_page (page_kaddr);
+          palloc_free_page (f->page_kaddr);
           return NULL;
         }
-      memset (page_kaddr + bytes_read, 0, PGSIZE - bytes_read);
+      memset (f->page_kaddr + bytes_read, 0, PGSIZE - bytes_read);
     }
 
   spte->loaded = true;
   lock_release (&f->lock);
 
-  return page_kaddr;
+  return f->page_kaddr;
 }
 
 /* Remove a page with kernel virtual address PAGE_KADDR from
@@ -236,7 +235,7 @@ clock_advance (void)
 
 /* Evict a page from it's frame and return the kernel virtual
    address that is now free to be used by another process. */
-static void *
+static struct frame_entry *
 frame_evict_page (void)
 {
   struct frame_entry *f = clock_find_frame ();
@@ -274,5 +273,5 @@ frame_evict_page (void)
   f->spte = NULL;
   spte->loaded = false;
 
-  return f->page_kaddr;
+  return f;
 }
