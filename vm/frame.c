@@ -18,7 +18,7 @@ static struct frame_entry *frame_table_base;
 /* Second chance clock algorithm for page eviction. */
 static struct frame_entry *lead_hand;
 static struct frame_entry *lag_hand;
-static struct lock eviction_lock;
+static struct lock get_frame_lock;
 static size_t clock_timeout;
 static size_t frame_cnt;
 
@@ -65,7 +65,7 @@ frame_table_init (void)
     }
 
   /* Initialize lock on clock algorithm usage and clock timeout. */
-  lock_init (&eviction_lock);
+  lock_init (&get_frame_lock);
   clock_timeout = 0;
 
   /* Get base address of the user pool. */
@@ -88,7 +88,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   struct frame_entry *f;
 
   /* Get a page of memory. Evict a page if necessary. */
-  lock_acquire (&eviction_lock);
+  lock_acquire (&get_frame_lock);
   void *page_kaddr = palloc_get_page (flags);
   if (page_kaddr == NULL)
     {
@@ -108,7 +108,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       lock_acquire (&f->lock);
       f->page_kaddr = page_kaddr;
     }
-  lock_release (&eviction_lock);
+  lock_release (&get_frame_lock);
 
   f->spte = spte;
   f->thread = thread_current ();
@@ -172,7 +172,7 @@ frame_free_page (void *page_kaddr)
 static struct frame_entry *
 clock_find_frame (void)
 {
-  ASSERT (lock_held_by_current_thread (&eviction_lock));
+  ASSERT (lock_held_by_current_thread (&get_frame_lock));
 
   while (true)
     {
