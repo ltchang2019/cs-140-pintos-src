@@ -18,7 +18,7 @@ static struct frame_entry *frame_table_base;
 /* Second chance clock algorithm for page eviction. */
 static struct frame_entry *lead_hand;
 static struct frame_entry *lag_hand;
-static struct lock clock_lock;
+static struct lock eviction_lock;
 static size_t clock_timeout;
 static size_t frame_cnt;
 
@@ -65,7 +65,7 @@ frame_table_init (void)
     }
 
   /* Initialize lock on clock algorithm usage and clock timeout. */
-  lock_init (&clock_lock);
+  lock_init (&eviction_lock);
   clock_timeout = 0;
 
   /* Get base address of the user pool. */
@@ -85,21 +85,32 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
 {
   ASSERT (flags & PAL_USER);
 
-  /* Get a page of memory. Evict a page if necessary. */  
+  struct frame_entry *f;
+
+  /* Get a page of memory. Evict a page if necessary. */
+  lock_acquire (&eviction_lock);
   void *page_kaddr = palloc_get_page (flags);
   if (page_kaddr == NULL)
-    page_kaddr = frame_evict_page ();
+    {
+      page_kaddr = frame_evict_page ();
 
-  /* In the highly unlikely case that both palloc_get_page 
-     and our eviction algorithm were unable to find a page,
-     return NULL. This will cause the page fault handler to
-     cause the process to exit with status -1. */
-  if(page_kaddr == NULL)
-    return NULL;
+      /* In the highly unlikely case that both palloc_get_page 
+        and our eviction algorithm were unable to find a page,
+        return NULL. */
+      if(page_kaddr == NULL)
+        return NULL;
+
+      f = page_kaddr_to_frame_addr (page_kaddr);
+      ASSERT (lock_held_by_current_thread (&f->lock));
+    }
+  else
+    {
+      f = page_kaddr_to_frame_addr (page_kaddr);
+      lock_acquire (&f->lock);
+    }
+  lock_release (&eviction_lock);
 
   /* Get index to available frame and set fields in frame. */
-  struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
-  lock_acquire (&f->lock);
   f->page_kaddr = page_kaddr;
   f->spte = spte;
   f->thread = thread_current ();
@@ -120,6 +131,8 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       off_t bytes_read = file_read_at (spte->file, page_kaddr,
                                        spte->page_bytes, spte->ofs);
       lock_release (&filesys_lock);
+
+      /* If file read error, free page and return NULL. */
       if (bytes_read != (int) spte->page_bytes)
         {
           palloc_free_page (page_kaddr);
@@ -161,7 +174,7 @@ frame_free_page (void *page_kaddr)
 static struct frame_entry *
 clock_find_frame (void)
 {
-  ASSERT (lock_held_by_current_thread (&clock_lock));
+  ASSERT (lock_held_by_current_thread (&eviction_lock));
 
   while (true)
     {
@@ -226,10 +239,8 @@ clock_advance (void)
 static void *
 frame_evict_page (void)
 {
-  lock_acquire (&clock_lock);
   struct frame_entry *f = clock_find_frame ();
   ASSERT (lock_held_by_current_thread (&f->lock));
-  lock_release (&clock_lock);
 
   /* If clock algorithm completed a full cycle through the frame table
      and could not find a frame to evict, return NULL. */
@@ -262,7 +273,6 @@ frame_evict_page (void)
   f->thread = NULL;
   f->spte = NULL;
   spte->loaded = false;
-  lock_release (&f->lock);
 
   return f->page_kaddr;
 }
