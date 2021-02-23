@@ -19,7 +19,8 @@ static struct frame_entry *frame_table_base;
 static struct frame_entry *lead_hand;
 static struct frame_entry *lag_hand;
 static struct lock clock_lock;
-static size_t free_frames;
+static size_t clock_timeout;
+static size_t frame_cnt;
 
 static struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
 static void *frame_evict_page (void);
@@ -45,16 +46,16 @@ page_kaddr_to_frame_addr (void *page_kaddr)
 void
 frame_table_init (void)
 {
-  /* Free memory starts at 1 MB and runs to the end of RAM.
-     Half of free memory can be used to store frames. */
-  free_frames = palloc_get_num_user_pages ();
+  /* Number of available frames is equal to the number
+     of available user pages. */
+  frame_cnt = palloc_get_num_user_pages ();
 
   /* Initialize frames in frame table. */
-  frame_table_base = malloc (sizeof (struct frame_entry) * free_frames);
+  frame_table_base = malloc (sizeof (struct frame_entry) * frame_cnt);
   if (frame_table_base == NULL)
     PANIC ("Not enough memory for frame table.");
 
-  for (size_t idx = 0; idx < free_frames; idx++)
+  for (size_t idx = 0; idx < frame_cnt; idx++)
     {
       struct frame_entry *f = frame_table_base + idx;
       f->page_kaddr = NULL;
@@ -63,15 +64,16 @@ frame_table_init (void)
       lock_init (&f->lock);
     }
 
-  /* Initialize lock on clock algorithm usage. */
+  /* Initialize lock on clock algorithm usage and clock timeout. */
   lock_init (&clock_lock);
+  clock_timeout = 0;
 
   /* Get base address of the user pool. */
   user_pool_base = palloc_get_user_pool_base ();
 
   /* Initialize leading and lagging hands for clock algorithm. */
   lag_hand = frame_table_base;
-  lead_hand = frame_table_base + (free_frames / 4);
+  lead_hand = frame_table_base + (frame_cnt / 4);
 }
 
 /* Obtain a page from the user pool and store it in the next
@@ -155,8 +157,14 @@ static struct frame_entry *
 clock_find_frame (void)
 {
   ASSERT (lock_held_by_current_thread (&clock_lock));
+
   while (true)
     {
+      /* After a full iteration through the frame table, if no
+         eviction candidate can be found, return NULL. */
+      if (clock_timeout >= frame_cnt)
+        return NULL;
+
       /* Clear access bit of page that lead hand points to. */
       if (lead_hand->thread != NULL)
         pagedir_set_accessed (lead_hand->thread->pagedir,
@@ -167,27 +175,30 @@ clock_find_frame (void)
         {
           ASSERT (lock_held_by_current_thread (&lag_hand->lock));
 
-          /* Advance clock hands and return page to be evicted. */
+          struct frame_entry *f = NULL;
+
+          /* If page can be evicted or the frame is free, advance clock
+             hands, reset the clock timeout, and return the frame. */
           if (lag_hand->thread == NULL)
-            {
-              struct frame_entry *f = lag_hand;
-              clock_advance ();
-              return f;
-            }
+            f = lag_hand;
           else if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
                                          lag_hand->spte->page_uaddr))
+            f = lag_hand;
+          
+          if (f != NULL)
             {
-              struct frame_entry *f = lag_hand;
               clock_advance ();
+              clock_timeout = 0;
               return f;
             }
-          
+
           lock_release (&lag_hand->lock);
         }
       
-      /* Eviction candidate is still being accessed, continue
+      /* Eviction candidate is still being accessed, so continue
          searching for page to evict by advancing clock hands. */
       clock_advance ();
+      clock_timeout++;
     }
     
     NOT_REACHED ();
@@ -199,9 +210,9 @@ clock_find_frame (void)
 static void
 clock_advance (void)
 {
-  if (++lead_hand >= frame_table_base + free_frames)
+  if (++lead_hand >= frame_table_base + frame_cnt)
     lead_hand = frame_table_base;
-  if (++lag_hand >= frame_table_base + free_frames)
+  if (++lag_hand >= frame_table_base + frame_cnt)
     lag_hand = frame_table_base;
 }
 
