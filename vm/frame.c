@@ -188,11 +188,9 @@ clock_find_frame (void)
         return NULL;
 
       /* Clear access bit of page that lead hand points to. */
-      lock_acquire (&lead_hand->lock);
       if (lead_hand->thread != NULL)
         pagedir_set_accessed (lead_hand->thread->pagedir,
                               lead_hand->spte->page_uaddr, false);
-      lock_release (&lead_hand->lock);
 
       /* Get lock on page that is candidate for eviction. */
       if (lock_try_acquire (&lag_hand->lock))
