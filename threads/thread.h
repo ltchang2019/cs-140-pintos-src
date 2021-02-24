@@ -128,6 +128,7 @@ struct thread
     uint8_t *esp;                     /* Saved stack pointer. */
     size_t mapid_counter;             /* Counter for mapids. */
     struct list mmap_list;            /* List of mmap entries. */
+    struct lock pagedir_lock;         /* Lock on page directory. */
 #endif
 
     /* Owned by thread.c. */
