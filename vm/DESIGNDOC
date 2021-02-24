@@ -295,6 +295,17 @@ valid stack access, in this case the process is simply terminated.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+At a high level, our synchronization design used used three different types of
+locks: frame-specific locks (frame->lock), a lock on the page allocation and
+eviction mechanism (get_frame_lock), and a lock on the file system
+(filesys_lock). Frame locks ensure both mutual exclusion when reading and
+writing data from a frame as well as mutual exclusion on the each thread's page
+directory (as each pagedir_clear_page call is contained within an acquire/
+release block for the frame's lock). The get_frame_lock avoids race conditions 
+between two frames trying to evict the same frame. The file system lock remains
+in place as it did in project 2 due to the current lack of support for
+concurrent operations on the file system.
+
 Deadlock is caused by a cycle in the graph of “wants” (i.e. a graph depicting
 processes and all the other processes they require resources from). In the
 cases where a process acquires access to multiple resources (acquires multiple
