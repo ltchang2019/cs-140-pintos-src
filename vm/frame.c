@@ -97,7 +97,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       /* In the highly unlikely case that both palloc_get_page 
         and our eviction algorithm were unable to find a page,
         return NULL. */
-      if (f == NULL)
+      if(f == NULL)
         return NULL;
 
       ASSERT (lock_held_by_current_thread (&f->lock));
@@ -157,17 +157,11 @@ frame_free_page (void *page_kaddr)
   ASSERT (f != NULL);
   
   lock_acquire (&f->lock);
-  
-  if (!lock_held_by_current_thread (&f->thread->pagedir_lock))
-    lock_acquire (&f->thread->pagedir_lock);
   pagedir_clear_page (thread_current ()->pagedir, f->spte->page_uaddr);
-  lock_release (&f->thread->pagedir_lock);
-
   f->page_kaddr = NULL;
   f->spte = NULL;
   f->thread = NULL;
   palloc_free_page (page_kaddr); 
-
   lock_release (&f->lock);
 }
 
@@ -189,12 +183,8 @@ clock_find_frame (void)
 
       /* Clear access bit of page that lead hand points to. */
       if (lead_hand->thread != NULL)
-        {
-          lock_acquire (&lead_hand->thread->pagedir_lock);
-          pagedir_set_accessed (lead_hand->thread->pagedir,
-                                lead_hand->spte->page_uaddr, false);
-          lock_release (&lead_hand->thread->pagedir_lock);
-        }
+        pagedir_set_accessed (lead_hand->thread->pagedir,
+                              lead_hand->spte->page_uaddr, false);
 
       /* Get lock on page that is candidate for eviction. */
       if (lock_try_acquire (&lag_hand->lock))
@@ -205,13 +195,11 @@ clock_find_frame (void)
 
           /* If page can be evicted or the frame is free, advance clock
              hands, reset the clock timeout, and return the frame. */
-          lock_acquire (&lag_hand->thread->pagedir_lock);
           if (lag_hand->thread == NULL)
             f = lag_hand;
           else if (!pagedir_is_accessed (lag_hand->thread->pagedir,    
                                          lag_hand->spte->page_uaddr))
             f = lag_hand;
-          lock_release (&lag_hand->thread->pagedir_lock);
           
           if (f != NULL)
             {
@@ -262,7 +250,6 @@ frame_evict_page (void)
   void *upage = spte->page_uaddr;
 
   /* Write current page in frame to disk or swap if necessary. */
-  lock_acquire (&t->pagedir_lock);
   if (spte->loc == SWAP ||
       spte->loc == STACK ||
       (spte->loc == ZERO && pagedir_is_dirty (t->pagedir, upage)) ||
@@ -278,11 +265,9 @@ frame_evict_page (void)
       file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
       lock_release (&filesys_lock);
     }
-
+  
   /* Remove page mapping from owning thread to complete the eviction. */
   pagedir_clear_page (t->pagedir, spte->page_uaddr);
-  lock_release (&t->pagedir_lock);
-
   f->thread = NULL;
   f->spte = NULL;
   spte->loaded = false;

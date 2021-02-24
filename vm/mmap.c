@@ -132,23 +132,16 @@ munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
       ASSERT (spte != NULL);
 
       /* Write page back to file if it has been written to. */
-      lock_acquire (&t->pagedir_lock);
       if (pagedir_is_dirty (t->pagedir, curr_uaddr))
         {
           lock_acquire (&filesys_lock);
           file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
           lock_release (&filesys_lock);
         }
-      lock_release (&t->pagedir_lock);
 
       /* Free underlying page if it is loaded in memory. */
       if (spte->loaded)
-        {
-          lock_acquire (&t->pagedir_lock);
-          frame_free_page (pagedir_get_page (t->pagedir, curr_uaddr));
-          if (lock_held_by_current_thread (&t->pagedir_lock))
-            lock_release (&t->pagedir_lock);
-        }
+        frame_free_page (pagedir_get_page (t->pagedir, curr_uaddr));
 
       list_remove (&entry->elem);
       spt_delete (&t->spt, &spte->elem);
