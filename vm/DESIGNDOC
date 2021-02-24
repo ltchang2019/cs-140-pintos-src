@@ -295,6 +295,19 @@ valid stack access, in this case the process is simply terminated.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+At a high level, our synchronization design used used four different types of 
+locks: frame-specific locks (frame->lock), a lock on the page allocation and 
+eviction mechanism (get_frame_lock), a lock on the file system (filesys_lock),
+and thread-specific pagedir locks (thread->pagedir_lock). Frame locks ensure 
+mutual exclusion when reading and writing data from a frame (which includes 
+cases where a process exits while another process is evicting its page). The 
+get_frame_lock avoids race conditions between two frames trying to evict the 
+same frame. The file system lock remains in place as it did in project 2 due 
+to the current lack of support for concurrent operations on the file system. 
+The pagedir locks prevent against race conditions where multiple threads try 
+to modify/clear pages or change access/dirty bits while another process is 
+reading from that page.
+
 Deadlock is caused by a cycle in the graph of “wants” (i.e. a graph depicting
 processes and all the other processes they require resources from). In the
 cases where a process acquires access to multiple resources (acquires multiple
@@ -406,15 +419,23 @@ not know what frame to lock until it has gotten a page. This would have
 required complicated atomic operations beyond the scope of this class, and we
 did not feel the need to overly complicate our page eviction design.
 
-Our fine-grained locking of individual frames achieves the equivalent of a
-read-write lock and allows multiple threads to read a frame’s data but enforces
-exclusive write access. One example would be that exiting threads must acquire
+Our fine-grained locking of individual frames enforces consistent reads and exclusive write access. One example would be that exiting threads must acquire
 the frame locks for each underlying page when trying to free them. This ensures
 that an exiting thread cannot set the frame’s thread field to NULL (since the
 thread dies but the frame still has a reference to it) while another thread is
 reading from that frame. The exiting thread must wait for other threads
 accessing the frame’s data to finish and release the frame lock before it can
-successfully exit.
+successfully exit. 
+
+Additionally, it is worth noting that we also used fine-grained locking for 
+page directories, as we had to ensure similar safety properties on potentially 
+concurrent operations on a single thread's page directory (e.g., a thread calls
+pagedir_clear_page while another page is calling pagedir_get_page).
+
+Overall, although we have two global locks which could not avoid (the 
+get_frame_lock and filesys_lock), we tried to keep as much parallelism as 
+possible through fine-grained locking for thread-owned resources (frames and
+page directories).
 
 
 			 MEMORY MAPPED FILES
