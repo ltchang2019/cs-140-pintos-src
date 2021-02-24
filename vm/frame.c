@@ -97,7 +97,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       /* In the highly unlikely case that both palloc_get_page 
         and our eviction algorithm were unable to find a page,
         return NULL. */
-      if(f == NULL)
+      if (f == NULL)
         return NULL;
 
       ASSERT (lock_held_by_current_thread (&f->lock));
