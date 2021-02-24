@@ -154,9 +154,15 @@ void
 frame_free_page (void *page_kaddr)
 {
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
-  ASSERT (f != NULL);
-  
   lock_acquire (&f->lock);
+
+  /* If we no longer own frame, return. */
+  if (f->thread != thread_current ())
+    {
+      lock_release (&f->lock);
+      return;
+    }
+
   pagedir_clear_page (thread_current ()->pagedir, f->spte->page_uaddr);
   f->page_kaddr = NULL;
   f->spte = NULL;
