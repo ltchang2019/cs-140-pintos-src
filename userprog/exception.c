@@ -210,13 +210,14 @@ page_fault (struct intr_frame *f)
           if (kpage == NULL)
             exit_error (-1);
 
+          lock_acquire (&thread_current ()->pagedir_lock);
           if (pagedir_get_page (pd, upage) == NULL)
             {
               bool success = pagedir_set_page (pd, upage, kpage, writable);
               if (!success)
                 exit_error (-1);
             }
-
+          lock_release (&thread_current ()->pagedir_lock);
           return;
         }
     }
