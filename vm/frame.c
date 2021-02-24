@@ -97,7 +97,7 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
       /* In the highly unlikely case that both palloc_get_page 
         and our eviction algorithm were unable to find a page,
         return NULL. */
-      if(f == NULL)
+      if (f == NULL)
         return NULL;
 
       ASSERT (lock_held_by_current_thread (&f->lock));
@@ -154,9 +154,15 @@ void
 frame_free_page (void *page_kaddr)
 {
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
-  ASSERT (f != NULL);
-  
   lock_acquire (&f->lock);
+
+  /* If we no longer own frame, return. */
+  if (f->thread != thread_current ())
+    {
+      lock_release (&f->lock);
+      return;
+    }
+
   pagedir_clear_page (thread_current ()->pagedir, f->spte->page_uaddr);
   f->page_kaddr = NULL;
   f->spte = NULL;
