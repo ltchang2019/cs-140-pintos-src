@@ -155,7 +155,6 @@ start_process (void *aux UNUSED)
   spt_init (&t->spt);
   list_init (&t->mmap_list);
   t->mapid_counter = 0;
-  lock_init (&t->pagedir_lock);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -253,10 +252,8 @@ process_exit (void)
          directory, or our active page directory will be one
          that's been freed (and cleared). */
       t->pagedir = NULL;
-      lock_acquire (&t->pagedir_lock);
       pagedir_activate (NULL);
       pagedir_destroy (pd);
-      lock_release (&t->pagedir_lock);
     }
 }
 
@@ -655,9 +652,6 @@ install_page (void *upage, void *kpage, bool writable)
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  lock_acquire (&t->pagedir_lock);
-  bool ret = (pagedir_get_page (t->pagedir, upage) == NULL && 
-              pagedir_set_page (t->pagedir, upage, kpage, writable));
-  lock_release (&t->pagedir_lock);
-  return ret;
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
