@@ -56,6 +56,7 @@ free_child_p_info_list (void)
       list_remove (curr);
       free (p_info->sema);
       free (p_info);
+      p_info = NULL;
     }
 }
 
@@ -193,10 +194,7 @@ start_process (void *aux UNUSED)
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
-   immediately, without waiting.
-
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   immediately, without waiting. */
 int
 process_wait (tid_t tid) 
 {
@@ -215,6 +213,8 @@ process_wait (tid_t tid)
   int exit_status = child_p_info->exit_status;
   list_remove (&child_p_info->elem);
   free (child_p_info);
+  child_p_info = NULL;
+
   return exit_status;
 }
 
@@ -512,9 +512,10 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
   return true;
 }
 
-/* Loads a segment starting at offset OFS in FILE at address
+/* Maps a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
-   memory are initialized, as follows:
+   memory are mapped and recorded in the supplemental page table
+   of the process, as follows:
 
         - READ_BYTES bytes at UPAGE must be read from FILE
           starting at offset OFS.
@@ -523,6 +524,9 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 
    The pages initialized by this function must be writable by the
    user process if WRITABLE is true, read-only otherwise.
+
+   The pages will be lazily loaded into physical memory when the
+   process faults on them.
 
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
@@ -557,6 +561,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       upage += PGSIZE;
       pos += PGSIZE;
     }
+
   return true;
 }
 

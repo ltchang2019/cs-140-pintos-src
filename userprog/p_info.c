@@ -1,4 +1,5 @@
 #include "userprog/p_info.h"
+#include <debug.h>
 #include "threads/malloc.h"
 #include "threads/synch.h"
 
@@ -8,8 +9,10 @@ init_p_info (struct thread *t)
 {
   struct p_info *p_info = malloc (sizeof (struct p_info));
   struct semaphore *sema = malloc (sizeof (struct semaphore));
-  sema_init (sema, 0);
+  if (p_info == NULL || sema == NULL)
+    PANIC ("init_p_info: malloc failed for p_info or sema struct.");
 
+  sema_init (sema, 0);
   p_info->tid = t->tid;
   p_info->exit_status = 0;
   p_info->sema = sema;

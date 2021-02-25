@@ -1,7 +1,7 @@
 #include "userprog/syscall.h"
+#include <debug.h>
 #include <stdio.h>
 #include <syscall-nr.h>
-#include <debug.h>
 #include "userprog/fd.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
@@ -142,8 +142,8 @@ syscall_handler (struct intr_frame *f)
         int fd = (int) read_frame (f, 1);
         void *buf = (void *) read_frame (f, 2);
         unsigned size = (unsigned) read_frame (f, 3);
-        check_usr_ptr (buf);
-        check_usr_ptr ((char *) buf + size);
+        for (unsigned i = 0; i < size; i += PGSIZE)
+          check_usr_ptr ((char *) buf + i);
 
         int bytes_read = syscall_read (fd, buf, size);
         write_frame (f, bytes_read);
@@ -154,8 +154,8 @@ syscall_handler (struct intr_frame *f)
         int fd = (int) read_frame (f, 1);
         const void *buf = (const void *) read_frame (f, 2);
         unsigned size = (unsigned) read_frame (f, 3);
-        check_usr_ptr (buf);
-        check_usr_ptr ((char *) buf + size);
+        for (unsigned i = 0; i < size; i += PGSIZE)
+          check_usr_ptr ((char *) buf + i);
 
         int bytes_written = syscall_write (fd, buf, size);
         write_frame (f, bytes_written);
@@ -339,6 +339,8 @@ syscall_open (const char *file_name)
   /* Allocate new fd_entry struct and add to fd_list of process. */
   struct thread *t = thread_current ();
   struct fd_entry *fd_entry = malloc (sizeof (struct fd_entry));
+  if (fd_entry == NULL)
+    PANIC ("syscall_open: malloc failed for fd_entry.");
   fd_entry->fd = t->fd_counter++;
   fd_entry->file = open_file;
   list_push_back (&t->fd_list, &fd_entry->elem);
@@ -485,6 +487,8 @@ syscall_close (int fd)
           lock_release (&filesys_lock);
           list_remove (fd_elem);
           free (entry);
+          entry = NULL;
+
           return;
         }
     }

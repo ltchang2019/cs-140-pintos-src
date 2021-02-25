@@ -25,7 +25,7 @@ swap_table_init (void)
 {
   swap = malloc (sizeof (struct swap));
   if (swap == NULL)
-    PANIC ("swap_init: failed to allocate swap table");
+    PANIC ("swap_table_init: malloc failed for swap table");
 
   struct block *swap_block = block_get_role (BLOCK_SWAP);
   block_sector_t swap_size = block_size (swap_block) / SECTORS_PER_PG;

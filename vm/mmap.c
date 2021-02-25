@@ -1,4 +1,5 @@
 #include "vm/mmap.h"
+#include <debug.h>
 #include "vm/frame.h"
 #include "vm/page.h"
 #include "vm/swap.h"
@@ -80,6 +81,9 @@ mmap (int fd, void *addr)
   
   /* Insert new mmap_entry into process's mmap_list. */
   struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
+  if (me == NULL)
+    PANIC ("mmap: malloc failed for mmap_entry.");
+
   me->mapid = t->mapid_counter++;
   me->uaddr = addr;
   list_push_back (&t->mmap_list, &me->elem);
@@ -146,6 +150,7 @@ munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
       list_remove (&entry->elem);
       spt_delete (&t->spt, &spte->elem);
       free (spte);
+      spte = NULL;
     }
 }
 

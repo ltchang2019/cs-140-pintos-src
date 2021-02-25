@@ -35,9 +35,9 @@ static void page_fault (struct intr_frame *);
    signals.  Instead, we'll make them simply kill the user
    process.
 
-   Page faults are an exception.  Here they are treated the same
-   way as other exceptions, but this will need to change to
-   implement virtual memory.
+   Page faults are an exception but they are treated differently
+   since virtual memory has been implemented. Page faults go
+   through the page fault handler instead.
 
    Refer to [IA32-v3a] section 5.15 "Exception and Interrupt
    Reference" for a description of each of these exceptions. */
@@ -85,15 +85,7 @@ exception_print_stats (void)
 /* Handler for an exception (probably) caused by a user process. */
 static void
 kill (struct intr_frame *f) 
-{
-  /* This interrupt is one (probably) caused by a user process.
-     For example, the process might have tried to access unmapped
-     virtual memory (a page fault).  For now, we simply kill the
-     user process.  Later, we'll want to handle page faults in
-     the kernel.  Real Unix-like operating systems pass most
-     exceptions back to the process via signals, but we don't
-     implement them. */
-     
+{    
   /* The interrupt frame's code segment value tells us where the
      exception originated. */
   switch (f->cs)
@@ -123,9 +115,7 @@ kill (struct intr_frame *f)
     }
 }
 
-/* Page fault handler.  This is a skeleton that must be filled in
-   to implement virtual memory.  Some solutions to project 2 may
-   also require modifying this code.
+/* Page fault handler.
 
    At entry, the address that faulted is in CR2 (Control Register
    2) and information about the fault, formatted as described in
