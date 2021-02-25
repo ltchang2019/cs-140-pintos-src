@@ -14,6 +14,7 @@ struct frame_entry
      struct lock lock;       /* A lock to allow a process to pin the frame. */
   };
 
+struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
 void frame_table_init (void);
 void *frame_alloc_page (enum palloc_flags flags, struct spte *spte);
 void frame_free_page (void *page_kaddr);

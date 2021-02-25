@@ -142,8 +142,13 @@ syscall_handler (struct intr_frame *f)
         int fd = (int) read_frame (f, 1);
         void *buf = (void *) read_frame (f, 2);
         unsigned size = (unsigned) read_frame (f, 3);
+
+        /* Check that all page addresses of BUF are valid. */
         for (unsigned i = 0; i < size; i += PGSIZE)
-          check_usr_ptr ((char *) buf + i);
+          {
+            uint8_t *buf_pg = (uint8_t *) buf + i;
+            check_usr_ptr (buf_pg);
+          }
 
         int bytes_read = syscall_read (fd, buf, size);
         write_frame (f, bytes_read);
@@ -154,8 +159,13 @@ syscall_handler (struct intr_frame *f)
         int fd = (int) read_frame (f, 1);
         const void *buf = (const void *) read_frame (f, 2);
         unsigned size = (unsigned) read_frame (f, 3);
+
+        /* Check that all page addresses of BUF are valid. */
         for (unsigned i = 0; i < size; i += PGSIZE)
-          check_usr_ptr ((char *) buf + i);
+          {
+            uint8_t *buf_pg = (uint8_t *) buf + i;
+            check_usr_ptr (buf_pg);
+          }
 
         int bytes_written = syscall_write (fd, buf, size);
         write_frame (f, bytes_written);
@@ -341,6 +351,7 @@ syscall_open (const char *file_name)
   struct fd_entry *fd_entry = malloc (sizeof (struct fd_entry));
   if (fd_entry == NULL)
     PANIC ("syscall_open: malloc failed for fd_entry.");
+
   fd_entry->fd = t->fd_counter++;
   fd_entry->file = open_file;
   list_push_back (&t->fd_list, &fd_entry->elem);
@@ -397,7 +408,35 @@ syscall_read (int fd, void *buf, unsigned size)
     return -1;
 
   lock_acquire (&filesys_lock);
+
+  /* Acquire locks on frames containing BUF to prevent interference
+     from the page eviction policy. Release locks after file_read(). */
+  for (unsigned i = 0; i < size; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (!lock_held_by_current_thread (&f->lock))
+            lock_acquire (&f->lock);
+        }
+    }
+
   bytes_read = file_read (open_file, buf, size);
+
+  for (unsigned i = 0; i < size; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (lock_held_by_current_thread (&f->lock))
+            lock_release (&f->lock);
+        }
+    }
+
   lock_release (&filesys_lock);
   return bytes_read;
 }
@@ -428,7 +467,35 @@ syscall_write (int fd, const void *buf, unsigned size)
     return 0;
 
   lock_acquire (&filesys_lock);
+
+  /* Acquire locks on frames containing BUF to prevent interference
+     from the page eviction policy. Release locks after file_write(). */
+  for (unsigned i = 0; i < size; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (!lock_held_by_current_thread (&f->lock))
+            lock_acquire (&f->lock);
+        }
+    }
+  
   bytes_written = file_write (open_file, buf, size);
+
+  for (unsigned i = 0; i < size; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (lock_held_by_current_thread (&f->lock))
+            lock_release (&f->lock);
+        }
+    }
+
   lock_release (&filesys_lock);
   return bytes_written;
 }
