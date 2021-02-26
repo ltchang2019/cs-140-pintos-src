@@ -47,6 +47,9 @@ static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
 static void check_usr_ptr (const void *usr_ptr);
 
+static void pin_buffer (const void *buffer, int length);
+static void unpin_buffer (const void *buffer, int length);
+
 /* Initializes the system call handler and lock for filesystem
    system calls. */
 void
@@ -265,6 +268,38 @@ check_usr_ptr (const void *usr_ptr)
     syscall_exit (-1);
 }
 
+static void 
+pin_buffer (const void *buf, int len)
+{
+  for (int i = 0; i < len; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (!lock_held_by_current_thread (&f->lock))
+            lock_acquire (&f->lock);
+        }
+    }
+}
+
+static void 
+unpin_buffer (const void *buf, int len)
+{
+  for (int i = 0; i < len; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (lock_held_by_current_thread (&f->lock))
+            lock_release (&f->lock);
+        }
+    }
+}
+
 /* Halts the operating system and powers down the machine. */
 static void
 syscall_halt (void)
@@ -411,31 +446,10 @@ syscall_read (int fd, void *buf, unsigned size)
 
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_read(). */
-  for (unsigned i = 0; i < size; i += PGSIZE)
-    {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
-      if (kpage != NULL)
-        {
-          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
-          if (!lock_held_by_current_thread (&f->lock))
-            lock_acquire (&f->lock);
-        }
-    }
-
+  
+  pin_buffer (buf, size);
   bytes_read = file_read (open_file, buf, size);
-
-  for (unsigned i = 0; i < size; i += PGSIZE)
-    {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
-      if (kpage != NULL)
-        {
-          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
-          if (lock_held_by_current_thread (&f->lock))
-            lock_release (&f->lock);
-        }
-    }
+  unpin_buffer (buf, size);
 
   lock_release (&filesys_lock);
   return bytes_read;
@@ -470,31 +484,9 @@ syscall_write (int fd, const void *buf, unsigned size)
 
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_write(). */
-  for (unsigned i = 0; i < size; i += PGSIZE)
-    {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
-      if (kpage != NULL)
-        {
-          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
-          if (!lock_held_by_current_thread (&f->lock))
-            lock_acquire (&f->lock);
-        }
-    }
-  
+  pin_buffer (buf, size);
   bytes_written = file_write (open_file, buf, size);
-
-  for (unsigned i = 0; i < size; i += PGSIZE)
-    {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
-      if (kpage != NULL)
-        {
-          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
-          if (lock_held_by_current_thread (&f->lock))
-            lock_release (&f->lock);
-        }
-    }
+  unpin_buffer (buf, size);
 
   lock_release (&filesys_lock);
   return bytes_written;
