@@ -22,7 +22,6 @@ static struct lock get_frame_lock;
 static size_t clock_timeout;
 static size_t frame_cnt;
 
-static struct frame_entry *page_kaddr_to_frame_addr (void *page_kaddr);
 static struct frame_entry *frame_evict_page (void);
 static struct frame_entry *clock_find_frame (void);
 static void clock_advance (void);
@@ -105,7 +104,9 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
   else
     {
       f = page_kaddr_to_frame_addr (page_kaddr);
-      lock_acquire (&f->lock);
+      if (!lock_held_by_current_thread (&f->lock))
+        lock_acquire (&f->lock);
+        
       f->page_kaddr = page_kaddr;
     }
   lock_release (&get_frame_lock);
@@ -154,7 +155,8 @@ void
 frame_free_page (void *page_kaddr)
 {
   struct frame_entry *f = page_kaddr_to_frame_addr (page_kaddr);
-  lock_acquire (&f->lock);
+  if (!lock_held_by_current_thread (&f->lock))
+    lock_acquire (&f->lock);
 
   /* If we no longer own frame, return. */
   if (f->thread != thread_current ())
@@ -279,4 +281,42 @@ frame_evict_page (void)
   spte->loaded = false;
 
   return f;
+}
+
+/* Given a user address START and a number of bytes LEN, this function
+   acquires the locks for all frames spanning this range, effectively
+   pinning the frames. */
+void 
+pin_frames (const void *start, int len)
+{
+  for (int i = 0; i < len; i += PGSIZE)
+    {
+      uint8_t *pg = pg_round_down ((uint8_t *) start + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (!lock_held_by_current_thread (&f->lock))
+            lock_acquire (&f->lock);
+        }
+    }
+}
+
+/* Given a user address START and a number of bytes LEN, this function
+   releases the locks for all frames spanning this range, effectively
+   unpinning the frames. */
+void 
+unpin_frames (const void *start, int len)
+{
+  for (int i = 0; i < len; i += PGSIZE)
+    {
+      uint8_t *pg = pg_round_down ((uint8_t *) start + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (lock_held_by_current_thread (&f->lock))
+            lock_release (&f->lock);
+        }
+    }
 }

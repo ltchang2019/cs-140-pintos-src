@@ -1,7 +1,8 @@
 #include "userprog/syscall.h"
-#include <stdio.h>
-#include <syscall-nr.h>
 #include <debug.h>
+#include <stdio.h>
+#include <string.h>
+#include <syscall-nr.h>
 #include "userprog/fd.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
@@ -142,8 +143,13 @@ syscall_handler (struct intr_frame *f)
         int fd = (int) read_frame (f, 1);
         void *buf = (void *) read_frame (f, 2);
         unsigned size = (unsigned) read_frame (f, 3);
-        check_usr_ptr (buf);
-        check_usr_ptr ((char *) buf + size);
+
+        /* Check that all page addresses of BUF are valid. */
+        for (unsigned i = 0; i < size; i += PGSIZE)
+          {
+            uint8_t *buf_pg = (uint8_t *) buf + i;
+            check_usr_ptr (buf_pg);
+          }
 
         int bytes_read = syscall_read (fd, buf, size);
         write_frame (f, bytes_read);
@@ -154,8 +160,13 @@ syscall_handler (struct intr_frame *f)
         int fd = (int) read_frame (f, 1);
         const void *buf = (const void *) read_frame (f, 2);
         unsigned size = (unsigned) read_frame (f, 3);
-        check_usr_ptr (buf);
-        check_usr_ptr ((char *) buf + size);
+
+        /* Check that all page addresses of BUF are valid. */
+        for (unsigned i = 0; i < size; i += PGSIZE)
+          {
+            uint8_t *buf_pg = (uint8_t *) buf + i;
+            check_usr_ptr (buf_pg);
+          }
 
         int bytes_written = syscall_write (fd, buf, size);
         write_frame (f, bytes_written);
@@ -268,7 +279,12 @@ syscall_halt (void)
 static pid_t
 syscall_exec (const char *cmd_line)
 {
+  int len = strlen (cmd_line);
+
+  pin_frames (cmd_line, len);
   pid_t pid = process_execute (cmd_line);
+  unpin_frames (cmd_line, len);
+
   return pid;
 }
 
@@ -307,8 +323,14 @@ syscall_exit (int status)
 static bool
 syscall_create (const char *file_name, unsigned initial_size)
 {
+  int len = strlen (file_name);
+
   lock_acquire (&filesys_lock);
+
+  pin_frames (file_name, len);
   bool create_succeeded = filesys_create (file_name, initial_size);
+  unpin_frames (file_name, len);
+
   lock_release (&filesys_lock);
   return create_succeeded;
 }
@@ -319,8 +341,14 @@ syscall_create (const char *file_name, unsigned initial_size)
 static bool
 syscall_remove (const char *file_name)
 {
+  int len = strlen (file_name);
+
   lock_acquire (&filesys_lock);
+
+  pin_frames (file_name, len);
   bool remove_succeeded = filesys_remove (file_name);
+  unpin_frames (file_name, len);
+
   lock_release (&filesys_lock);
   return remove_succeeded;
 }
@@ -330,8 +358,14 @@ syscall_remove (const char *file_name)
 static int
 syscall_open (const char *file_name)
 {
+  int len = strlen (file_name);
+
   lock_acquire (&filesys_lock);
+
+  pin_frames (file_name, len);
   struct file *open_file = filesys_open (file_name);
+  unpin_frames (file_name, len);
+
   lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
@@ -339,6 +373,9 @@ syscall_open (const char *file_name)
   /* Allocate new fd_entry struct and add to fd_list of process. */
   struct thread *t = thread_current ();
   struct fd_entry *fd_entry = malloc (sizeof (struct fd_entry));
+  if (fd_entry == NULL)
+    PANIC ("syscall_open: malloc failed for fd_entry.");
+
   fd_entry->fd = t->fd_counter++;
   fd_entry->file = open_file;
   list_push_back (&t->fd_list, &fd_entry->elem);
@@ -395,7 +432,14 @@ syscall_read (int fd, void *buf, unsigned size)
     return -1;
 
   lock_acquire (&filesys_lock);
+
+  /* Acquire locks on frames containing BUF to prevent interference
+     from the page eviction policy. Release locks after file_read(). */
+  
+  pin_frames (buf, size);
   bytes_read = file_read (open_file, buf, size);
+  unpin_frames (buf, size);
+
   lock_release (&filesys_lock);
   return bytes_read;
 }
@@ -426,7 +470,13 @@ syscall_write (int fd, const void *buf, unsigned size)
     return 0;
 
   lock_acquire (&filesys_lock);
+
+  /* Acquire locks on frames containing BUF to prevent interference
+     from the page eviction policy. Release locks after file_write(). */
+  pin_frames (buf, size);
   bytes_written = file_write (open_file, buf, size);
+  unpin_frames (buf, size);
+
   lock_release (&filesys_lock);
   return bytes_written;
 }
@@ -485,6 +535,8 @@ syscall_close (int fd)
           lock_release (&filesys_lock);
           list_remove (fd_elem);
           free (entry);
+          entry = NULL;
+
           return;
         }
     }

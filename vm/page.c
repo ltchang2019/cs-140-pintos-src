@@ -1,11 +1,11 @@
 #include "vm/page.h"
+#include <debug.h>
 #include "vm/frame.h"
 #include "vm/swap.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
-#include "userprog/syscall.h"
 
 static unsigned spte_hash_func (const struct hash_elem *e, void *aux);
 static bool spte_less_func (const struct hash_elem *a,
@@ -39,7 +39,7 @@ spt_init (struct hash *hash_table)
 {
   bool success = hash_init (hash_table, spte_hash_func, spte_less_func, NULL);
   if (!success)
-    exit_error (-1);
+    PANIC ("spt_init: malloc for spt hash table failed.");
 }
 
 /* Insert a supplemental page table entry into the SPT. */
@@ -66,7 +66,7 @@ spte_create (void *page_uaddr, enum location loc,
 {
   struct spte *spte = malloc (sizeof (struct spte));
   if (spte == NULL)
-    exit_error (-1);
+    PANIC ("spte_create: malloc failed for spt entry.");
 
   spte->page_uaddr = page_uaddr;
   spte->loc = loc;
@@ -127,4 +127,5 @@ spte_free (struct hash_elem *he, void *aux UNUSED)
 
   spt_delete (&t->spt, &spte->elem);
   free (spte);
+  spte = NULL;
 }

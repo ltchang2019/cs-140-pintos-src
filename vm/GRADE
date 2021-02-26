@@ -1,7 +1,7 @@
 ../../tests/make-grade ../.. results ../../tests/vm/Grading | tee grade
-warning: test tests/userprog/exec-bound-2 doesn't count for grading
 warning: test tests/userprog/exec-bound-3 doesn't count for grading
 warning: test tests/userprog/sc-boundary-3 doesn't count for grading
+warning: test tests/userprog/exec-bound-2 doesn't count for grading
 warning: test tests/userprog/exec-bound doesn't count for grading
 TOTAL TESTING SCORE: 100.0%
 ALL TESTED PASSED -- PERFECT SCORE

@@ -47,5 +47,6 @@ free_fd_list (void)
 
       list_remove (fd_elem);
       free (entry);
+      entry = NULL;
     }
 }
