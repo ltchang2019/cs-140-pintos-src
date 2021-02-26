@@ -303,8 +303,13 @@ writing data from a frame as well as mutual exclusion on the each thread's page
 directory (as each pagedir_clear_page and pagedir_set_accessed call is 
 contained within an acquire/release block for the frame's lock). The 
 get_frame_lock avoids race conditions between two frames trying to evict the 
-same frame. The file system lock remainsin place as it did in project 2 due to
-the current lack of support for concurrent operations on the file system.
+same frame. The file system lock remains in place as it did in project 2 due to
+the current lack of support for concurrent operations on the file system. In
+addition, it is worth mentioning that we also reuse frame locks for pinning 
+during system calls, and make sure to pin all frames associated with a the 
+pages of a pointer argument before continuing with a call to the file system or
+executing a process (we pin for the exec system call as well as all file system
+related system calls that take pointers).
 
 Deadlock is caused by a cycle in the graph of “wants” (i.e. a graph depicting
 processes and all the other processes they require resources from). In the
