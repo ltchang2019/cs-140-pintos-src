@@ -283,13 +283,16 @@ frame_evict_page (void)
   return f;
 }
 
+/* Given a user address START and a number of bytes LEN, this function
+   acquires the locks for all frames spanning this range, effectively
+   pinning the frames. */
 void 
-pin_frames (const void *buf, int len)
+pin_frames (const void *start, int len)
 {
   for (int i = 0; i < len; i += PGSIZE)
     {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      uint8_t *pg = pg_round_down ((uint8_t *) start + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, pg);
       if (kpage != NULL)
         {
           struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
@@ -299,13 +302,16 @@ pin_frames (const void *buf, int len)
     }
 }
 
+/* Given a user address START and a number of bytes LEN, this function
+   releases the locks for all frames spanning this range, effectively
+   unpinning the frames. */
 void 
-unpin_frames (const void *buf, int len)
+unpin_frames (const void *start, int len)
 {
   for (int i = 0; i < len; i += PGSIZE)
     {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      uint8_t *pg = pg_round_down ((uint8_t *) start + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, pg);
       if (kpage != NULL)
         {
           struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
