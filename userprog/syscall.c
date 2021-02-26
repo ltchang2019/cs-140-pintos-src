@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <debug.h>
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "userprog/fd.h"
 #include "userprog/pagedir.h"
@@ -46,9 +47,6 @@ static void write_frame (struct intr_frame *, uintptr_t ret_value);
 static void check_usr_str (const char *usr_ptr);
 static void check_usr_addr (const void *start_ptr, int num_bytes);
 static void check_usr_ptr (const void *usr_ptr);
-
-static void pin_buffer (const void *buffer, int length);
-static void unpin_buffer (const void *buffer, int length);
 
 /* Initializes the system call handler and lock for filesystem
    system calls. */
@@ -268,38 +266,6 @@ check_usr_ptr (const void *usr_ptr)
     syscall_exit (-1);
 }
 
-static void 
-pin_buffer (const void *buf, int len)
-{
-  for (int i = 0; i < len; i += PGSIZE)
-    {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
-      if (kpage != NULL)
-        {
-          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
-          if (!lock_held_by_current_thread (&f->lock))
-            lock_acquire (&f->lock);
-        }
-    }
-}
-
-static void 
-unpin_buffer (const void *buf, int len)
-{
-  for (int i = 0; i < len; i += PGSIZE)
-    {
-      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
-      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
-      if (kpage != NULL)
-        {
-          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
-          if (lock_held_by_current_thread (&f->lock))
-            lock_release (&f->lock);
-        }
-    }
-}
-
 /* Halts the operating system and powers down the machine. */
 static void
 syscall_halt (void)
@@ -313,7 +279,12 @@ syscall_halt (void)
 static pid_t
 syscall_exec (const char *cmd_line)
 {
+  int len = strlen (cmd_line);
+
+  pin_frames (cmd_line, len);
   pid_t pid = process_execute (cmd_line);
+  unpin_frames (cmd_line, len);
+
   return pid;
 }
 
@@ -352,8 +323,14 @@ syscall_exit (int status)
 static bool
 syscall_create (const char *file_name, unsigned initial_size)
 {
+  int len = strlen (file_name);
+
   lock_acquire (&filesys_lock);
+
+  pin_frames (file_name, len);
   bool create_succeeded = filesys_create (file_name, initial_size);
+  unpin_frames (file_name, len);
+
   lock_release (&filesys_lock);
   return create_succeeded;
 }
@@ -364,8 +341,14 @@ syscall_create (const char *file_name, unsigned initial_size)
 static bool
 syscall_remove (const char *file_name)
 {
+  int len = strlen (file_name);
+
   lock_acquire (&filesys_lock);
+
+  pin_frames (file_name, len);
   bool remove_succeeded = filesys_remove (file_name);
+  unpin_frames (file_name, len);
+
   lock_release (&filesys_lock);
   return remove_succeeded;
 }
@@ -375,8 +358,14 @@ syscall_remove (const char *file_name)
 static int
 syscall_open (const char *file_name)
 {
+  int len = strlen (file_name);
+
   lock_acquire (&filesys_lock);
+
+  pin_frames (file_name, len);
   struct file *open_file = filesys_open (file_name);
+  unpin_frames (file_name, len);
+
   lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
@@ -447,9 +436,9 @@ syscall_read (int fd, void *buf, unsigned size)
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_read(). */
   
-  pin_buffer (buf, size);
+  pin_frames (buf, size);
   bytes_read = file_read (open_file, buf, size);
-  unpin_buffer (buf, size);
+  unpin_frames (buf, size);
 
   lock_release (&filesys_lock);
   return bytes_read;
@@ -484,9 +473,9 @@ syscall_write (int fd, const void *buf, unsigned size)
 
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_write(). */
-  pin_buffer (buf, size);
+  pin_frames (buf, size);
   bytes_written = file_write (open_file, buf, size);
-  unpin_buffer (buf, size);
+  unpin_frames (buf, size);
 
   lock_release (&filesys_lock);
   return bytes_written;

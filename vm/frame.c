@@ -282,3 +282,35 @@ frame_evict_page (void)
 
   return f;
 }
+
+void 
+pin_frames (const void *buf, int len)
+{
+  for (int i = 0; i < len; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (!lock_held_by_current_thread (&f->lock))
+            lock_acquire (&f->lock);
+        }
+    }
+}
+
+void 
+unpin_frames (const void *buf, int len)
+{
+  for (int i = 0; i < len; i += PGSIZE)
+    {
+      uint8_t *buf_pg = pg_round_down ((uint8_t *) buf + i);
+      void *kpage = pagedir_get_page (thread_current ()->pagedir, buf_pg);
+      if (kpage != NULL)
+        {
+          struct frame_entry *f = page_kaddr_to_frame_addr (kpage);
+          if (lock_held_by_current_thread (&f->lock))
+            lock_release (&f->lock);
+        }
+    }
+}
