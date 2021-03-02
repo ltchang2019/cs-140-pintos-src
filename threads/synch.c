@@ -469,7 +469,7 @@ cond_broadcast (struct condition *cond, struct lock *lock)
    readers, while writers require exclusive access. Thus, when
    a writer has acquired the rw_lock, all other readers/writers
    will be blocked until the writer holding the rw_lock has
-   released it.
+   finished writing and released it.
 
    The rw_lock is implemented with a condition variable and an
    ordinary lock. It is writer-preferring, which means that priority
@@ -493,7 +493,8 @@ rw_lock_init (struct rw_lock *rw_lock)
 /* Acquires RW_LOCK as a reader, sleeping until it becomes available
    if necessary. Sleeping will occur if there are one or more writers
    waiting to acquire the rw_lock, or if the rw_lock is currently
-   held by a writer. */
+   held by a writer. After the rw_lock is acquired by the reader,
+   the num_readers_active counter is incremented. */
 void 
 rw_lock_shared_acquire (struct rw_lock *rw_lock)
 {
@@ -523,11 +524,11 @@ rw_lock_shared_release (struct rw_lock *rw_lock)
 
 /* Acquires RW_LOCK as a writer, sleeping until it becomes available
    if necessary. If the writer sleeps, the num_writers_waiting
-   counter is first incremented to signal that one or more writers
-   are waiting for the rw_lock. After being signaled that the
-   rw_lock is available and acquiring it, num_writers_waiting is
-   decremented and the writer_active flag is set to true to prevent
-   other readers/writers from acquiring the rw_lock. */
+   counter is first incremented before sleep to denote that one or
+   more writers are waiting for the rw_lock. After acquiring the
+   rw_lock, num_writers_waiting is decremented and the writer_active
+   flag is set to true to prevent other readers/writers from
+   simultaneously acquiring the rw_lock. */
 void
 rw_lock_exclusive_acquire (struct rw_lock *rw_lock)
 {
