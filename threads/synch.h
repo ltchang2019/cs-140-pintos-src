@@ -60,6 +60,22 @@ void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
+/* Writer-preferring readers-writer lock. */
+struct rw_lock
+  {
+    struct lock lock;             /* Lock for atomic increments/decrements. */
+    struct condition cond;        /* Condition variable. */
+    unsigned num_readers_active;  /* Number of current readers. */
+    unsigned num_writers_waiting; /* Number of waiting writers. */
+    bool writer_active;           /* Does a writer currently have rw_lock? */
+  };
+
+void rw_lock_init (struct rw_lock *);
+void rw_lock_shared_acquire (struct rw_lock *);
+void rw_lock_shared_release (struct rw_lock *);
+void rw_lock_exclusive_acquire (struct rw_lock *);
+void rw_lock_exclusive_release (struct rw_lock *);
+
 /* Optimization barrier.
 
    The compiler will not reorder operations across an

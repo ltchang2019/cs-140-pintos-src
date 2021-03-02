@@ -19,6 +19,9 @@ struct swap
 /* Reference to the swap table. */
 static struct swap *swap;
 
+// TESTING RW_LOCK
+static struct rw_lock *rw_lock;
+
 /* Initializes the swap table. */
 void
 swap_table_init (void)
@@ -32,6 +35,13 @@ swap_table_init (void)
   lock_init (&swap->lock);
   swap->used_map = bitmap_create (swap_size);
   swap->block = swap_block;
+
+  // TESTING RW_LOCK
+  rw_lock = malloc (sizeof (struct rw_lock));
+  if (rw_lock == NULL)
+    PANIC ("AAAAAHHHHHHHH");
+  
+  rw_lock_init (rw_lock);
 }
 
 /* Write a page of memory with kernel virtual address KPAGE
@@ -40,12 +50,16 @@ swap_table_init (void)
 size_t
 swap_write_page (const void *kpage)
 {
+  rw_lock_shared_acquire (rw_lock);
   lock_acquire (&swap->lock);
   size_t swap_idx = bitmap_scan_and_flip (swap->used_map, 0, 1, false);
   lock_release (&swap->lock);
+  rw_lock_shared_release (rw_lock);
 
+  rw_lock_exclusive_acquire (rw_lock);
   if (swap_idx == BITMAP_ERROR)
     PANIC ("swap_get_slot: out of swap slots");
+  rw_lock_exclusive_release (rw_lock);
   
   /* Write page in BLOCK_SECTOR_SIZE chunks to the swap slot. */
   block_sector_t sector = swap_idx * SECTORS_PER_PG;
