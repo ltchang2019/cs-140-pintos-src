@@ -5,6 +5,7 @@
 #include "threads/synch.h"
 
 #define CACHE_SIZE 64
+#define CACHE_NOT_PRESENT SIZE_MAX
 
 /* Sector type to distinguish between inodes and data. */
 enum sector_type
@@ -38,7 +39,9 @@ struct sector_elem
   };
 
 void *cache_idx_to_cache_slot (size_t cache_idx);
+
 void cache_init (void);
+size_t cache_load (block_sector_t sector);
 void cache_flush (void);
 
 #endif /* filesys/cache.h */
