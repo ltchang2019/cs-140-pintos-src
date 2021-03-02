@@ -18,16 +18,27 @@ struct cache_entry
   {
     enum sector_type type;      /* Sector type. */
     block_sector_t sector_idx;  /* Sector number of disk location. */
-                                // IS THIS NECESSARY? CAN BE OBTAINED
-                                // FROM INODE->SECTOR
     size_t cache_idx;           /* Location in the buffer cache. */
     bool dirty;                 /* Dirty flag for writes. */
     bool accessed;              /* Accessed flag for reads/writes. */
+                                // IS ACCESSED FLAG NECESSARY?
     struct inode *inode;        /* Reference to in-memory inode. */
     struct rw_lock rw_lock;     /* Readers-writer lock for the block. */
   };
 
+/* A semaphore to signal the read-ahead worker thread. */
+struct semaphore read_ahead_sema;
+
+/* Block sector element that allows block sector numbers
+   to be placed in a list. */
+struct sector_elem 
+  {
+    block_sector_t sector;  /* Sector number of disk location. */
+    struct list_elem elem;  /* List element. */
+  };
+
 void *cache_idx_to_cache_slot (size_t cache_idx);
 void cache_init (void);
+void cache_flush (void);
 
-#endif /* filesys/inode.h */
+#endif /* filesys/cache.h */
