@@ -2,7 +2,9 @@
 #include <list.h>
 #include <debug.h>
 #include <round.h>
+#include <stdio.h>
 #include <string.h>
+#include "filesys/cache.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
@@ -36,7 +38,12 @@ struct inode
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-    struct inode_disk data;             /* Inode content. */
+
+    // struct inode_disk data;             /* Inode content. */
+    // DELETE STRUCT INODE_DISK DATA;
+
+    struct cache_entry *inode_entry;    /* Reference to inode_disk in cache. */
+    struct list data_entries;           /* List of data blocks in cache. */
   };
 
 /* Returns the block device sector that contains byte offset POS
@@ -47,8 +54,21 @@ static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   ASSERT (inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
+
+  /* Read inode_disk from cache. */
+  size_t cache_idx = cache_load (inode->sector);
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  ce->type = INODE;
+  ce->accessed = true;
+  off_t length = inode_data->length;
+  block_sector_t start = inode_data->start;
+  rw_lock_shared_release (&ce->rw_lock);
+
+  /* Examine length relative to pos. */
+  if (pos < length)
+    return start + pos / BLOCK_SECTOR_SIZE;
   else
     return -1;
 }
@@ -105,9 +125,11 @@ inode_create (block_sector_t sector, off_t length)
   return success;
 }
 
-/* Reads an inode from SECTOR
-   and returns a `struct inode' that contains it.
-   Returns a null pointer if memory allocation fails. */
+/* Reads an inode from SECTOR, loading it from disk into
+   the cache if it is not already present. Returns a
+   `struct inode' that points to the cache_entry for the
+   inode. Returns a null pointer if memory allocation
+   fails for the `struct inode'. */
 struct inode *
 inode_open (block_sector_t sector)
 {
@@ -137,7 +159,12 @@ inode_open (block_sector_t sector)
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
-  block_read (fs_device, inode->sector, &inode->data);
+  inode->inode_entry = NULL;
+  list_init (&inode->data_entries);
+
+  // block_read (fs_device, inode->sector, &inode->data);
+  // DELETE SINCE INODE_DISK NO LONGER EMBEDDED IN STRUCT INODE
+
   return inode;
 }
 
@@ -176,9 +203,19 @@ inode_close (struct inode *inode)
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
+          /* Read inode_disk from cache. */
+          size_t cache_idx = cache_load (inode->sector);
+          struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+          void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+          struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+          ce->type = INODE;
+          ce->accessed = true;
+          off_t length = inode_data->length;
+          block_sector_t start = inode_data->start;
+          rw_lock_shared_release (&ce->rw_lock);
+
           free_map_release (inode->sector, 1);
-          free_map_release (inode->data.start,
-                            bytes_to_sectors (inode->data.length)); 
+          free_map_release (start, bytes_to_sectors (length)); 
         }
 
       free (inode); 
@@ -202,7 +239,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 {
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
-  uint8_t *bounce = NULL;
 
   while (size > 0) 
     {
@@ -220,31 +256,33 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       if (chunk_size <= 0)
         break;
 
+      /* Read data block from cache. */
+      size_t cache_idx = cache_load (sector_idx);
+      struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+      void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+      ce->type = DATA;
+      ce->accessed = true;
+      ce->inode = inode;
+
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
-          /* Read full sector directly into caller's buffer. */
-          block_read (fs_device, sector_idx, buffer + bytes_read);
+          /* Copy full block from cache into caller's buffer. */
+          memcpy (buffer + bytes_read, cache_slot, BLOCK_SECTOR_SIZE);
         }
-      else 
+      else
         {
-          /* Read sector into bounce buffer, then partially copy
-             into caller's buffer. */
-          if (bounce == NULL) 
-            {
-              bounce = malloc (BLOCK_SECTOR_SIZE);
-              if (bounce == NULL)
-                break;
-            }
-          block_read (fs_device, sector_idx, bounce);
-          memcpy (buffer + bytes_read, bounce + sector_ofs, chunk_size);
+          /* Partially copy block from cache into caller's buffer. */
+          memcpy (buffer + bytes_read, cache_slot + sector_ofs, chunk_size);
         }
+
+      /* Release rw_lock on the cache_entry for this block. */
+      rw_lock_shared_release (&ce->rw_lock);
       
       /* Advance. */
       size -= chunk_size;
       offset += chunk_size;
       bytes_read += chunk_size;
     }
-  free (bounce);
 
   return bytes_read;
 }
@@ -260,7 +298,6 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 {
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
-  uint8_t *bounce = NULL;
 
   if (inode->deny_write_cnt)
     return 0;
@@ -281,38 +318,37 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       if (chunk_size <= 0)
         break;
 
+      /* Read data block from cache. */
+      size_t cache_idx = cache_load (sector_idx);
+      struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+      void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+      ce->type = DATA;
+      ce->dirty = true;
+      ce->accessed = true;
+      ce->inode = inode;
+
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
-          /* Write full sector directly to disk. */
-          block_write (fs_device, sector_idx, buffer + bytes_written);
+          /* Write full block from user buffer to cache slot. */
+          memcpy (cache_slot, buffer + bytes_written, BLOCK_SECTOR_SIZE);
         }
       else 
         {
-          /* We need a bounce buffer. */
-          if (bounce == NULL) 
-            {
-              bounce = malloc (BLOCK_SECTOR_SIZE);
-              if (bounce == NULL)
-                break;
-            }
-
-          /* If the sector contains data before or after the chunk
-             we're writing, then we need to read in the sector
-             first.  Otherwise we start with a sector of all zeros. */
-          if (sector_ofs > 0 || chunk_size < sector_left) 
-            block_read (fs_device, sector_idx, bounce);
-          else
-            memset (bounce, 0, BLOCK_SECTOR_SIZE);
-          memcpy (bounce + sector_ofs, buffer + bytes_written, chunk_size);
-          block_write (fs_device, sector_idx, bounce);
+          /* If the block does not contain data before or after the 
+             chunk we're writing, we first zero out the block. */
+          if (sector_ofs == 0 && chunk_size >= sector_left)
+            memset (cache_slot, 0, BLOCK_SECTOR_SIZE);
+          memcpy (cache_slot + sector_ofs, buffer + bytes_written, chunk_size);
         }
+
+      /* Release rw_lock on the cache_entry for this block. */
+      rw_lock_shared_release (&ce->rw_lock);
 
       /* Advance. */
       size -= chunk_size;
       offset += chunk_size;
       bytes_written += chunk_size;
     }
-  free (bounce);
 
   return bytes_written;
 }
@@ -341,5 +377,15 @@ inode_allow_write (struct inode *inode)
 off_t
 inode_length (const struct inode *inode)
 {
-  return inode->data.length;
+  /* Read inode_disk from cache. */
+  size_t cache_idx = cache_load (inode->sector);
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  ce->type = INODE;
+  ce->accessed = true;
+  off_t length = inode_data->length;
+  rw_lock_shared_release (&ce->rw_lock);
+
+  return length;
 }
