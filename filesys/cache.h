@@ -17,17 +17,13 @@ enum sector_type
 /* Cache entry. */
 struct cache_entry
   {
-    enum sector_type type;      /* Sector type. */
+    enum sector_type type;      /* Sector type (inode or data). */
     block_sector_t sector_idx;  /* Sector number of disk location. */
-    size_t cache_idx;           /* Location in the buffer cache. */
+    size_t cache_idx;           /* Index in the buffer cache. */
     bool dirty;                 /* Dirty flag for writes. */
     bool accessed;              /* Accessed flag for reads/writes. */
-    struct inode *inode;        /* Reference to in-memory inode. */
     struct rw_lock rw_lock;     /* Readers-writer lock. */
   };
-
-/* A semaphore to signal the read-ahead worker thread. */
-struct semaphore read_ahead_sema;
 
 /* Block sector element that allows block sector numbers
    to be placed in a list. */
@@ -39,10 +35,10 @@ struct sector_elem
 
 void *cache_idx_to_cache_slot (size_t cache_idx);
 struct cache_entry *cache_idx_to_cache_entry (size_t cache_idx);
-
 void cache_init (void);
-size_t cache_load (struct inode *inode, block_sector_t sector,
-                   enum sector_type type);
+size_t cache_get_block (block_sector_t sector, enum sector_type type);
 void cache_flush (void);
+
+void read_ahead_signal (block_sector_t sector);
 
 #endif /* filesys/cache.h */
