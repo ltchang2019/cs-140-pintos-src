@@ -44,6 +44,17 @@ cache_idx_to_cache_slot (size_t cache_idx)
   return cache_slot;
 }
 
+/* Translates CACHE_IDX into address of the corresponding
+   cache_entry. */
+struct cache_entry *
+cache_idx_to_cache_entry (size_t cache_idx)
+{
+  ASSERT (cache_idx < CACHE_SIZE);
+
+  struct cache_entry *ce = cache_metadata + cache_idx;
+  return ce;
+}
+
 /* Allocates memory for cache, cache metadata, and cache
    bitmap. Initializes the global cache_lock for the
    eviction algorithm and individual rw_locks for each of
@@ -284,7 +295,7 @@ cache_read_ahead (void *aux UNUSED)
       
       struct list_elem *e = list_pop_front (&read_ahead_list);
       struct sector_elem *s = list_entry (e, struct sector_elem, elem);
-      
+
       cache_load (s->sector);
     }
 }
