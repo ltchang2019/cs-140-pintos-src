@@ -5,7 +5,7 @@
 #include "threads/synch.h"
 
 #define CACHE_SIZE 64
-#define CACHE_NOT_PRESENT SIZE_MAX
+#define BLOCK_NOT_PRESENT SIZE_MAX
 
 /* Sector type to distinguish between inodes and data. */
 enum sector_type
@@ -22,9 +22,8 @@ struct cache_entry
     size_t cache_idx;           /* Location in the buffer cache. */
     bool dirty;                 /* Dirty flag for writes. */
     bool accessed;              /* Accessed flag for reads/writes. */
-                                // IS ACCESSED FLAG NECESSARY?
     struct inode *inode;        /* Reference to in-memory inode. */
-    struct rw_lock rw_lock;     /* Readers-writer lock for the block. */
+    struct rw_lock rw_lock;     /* Readers-writer lock. */
   };
 
 /* A semaphore to signal the read-ahead worker thread. */

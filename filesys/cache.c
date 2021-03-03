@@ -1,6 +1,6 @@
 #include "filesys/cache.h"
-#include "filesys/filesys.h"
 #include <bitmap.h>
+#include "filesys/filesys.h"
 #include "devices/timer.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
@@ -8,16 +8,16 @@
 /* Base addresses of cache, cache metadata, and cache bitmap. */
 static void *cache;
 static struct cache_entry *cache_metadata;
-struct bitmap *cache_bitmap;
+static struct bitmap *cache_bitmap;
 
 /* Lock on the cache. */
-static struct lock get_slot_lock;
+static struct lock cache_lock;
 
 /* Clock hand and timeout for the block eviction algorithm. */
 static struct cache_entry *clock_hand;
 static size_t clock_timeout;
 
-/* List of block sectors to be pre-fetched. */
+/* List of block sectors to be pre-loaded into cache. */
 static struct list read_ahead_list;
 
 /* Thread functions for asynchronous read-ahead and periodic
@@ -45,7 +45,7 @@ cache_idx_to_cache_slot (size_t cache_idx)
 }
 
 /* Allocates memory for cache, cache metadata, and cache
-   bitmap. Initializes the global get_slot_lock for the
+   bitmap. Initializes the global cache_lock for the
    eviction algorithm and individual rw_locks for each of
    the cache entries. Spawns two worker threads to handle
    asynchronous read-ahead and periodic writes of dirty
@@ -60,8 +60,8 @@ cache_init (void)
   if (cache == NULL || cache_metadata == NULL || cache_bitmap == NULL)
     PANIC ("cache_init: failed memory allocation for cache data structures.");
 
-  /* Initialize get_slot_lock. */
-  lock_init (&get_slot_lock);
+  /* Initialize cache_lock. */
+  lock_init (&cache_lock);
 
   /* Initialize fields including rw_lock for each cache_entry. */
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
@@ -79,7 +79,7 @@ cache_init (void)
   clock_hand = cache_metadata + (CACHE_SIZE / 2);
   clock_timeout = 0;
 
-  /* Initialize list of read-ahead block sectors and semaphore. */
+  /* Initialize list and semaphore for read-ahead worker thread. */
   list_init (&read_ahead_list);
   sema_init (&read_ahead_sema, 0);
 
@@ -92,13 +92,14 @@ cache_init (void)
     PANIC ("cache_init: failed to spawn cache worker threads.");
 }
 
-/* Load a disk sector with sector number SECTOR into the cache,
-   and return the index of the cache slot in which the sector
+/* Loads a disk sector with sector number SECTOR into the cache,
+   and returns the index of the cache slot in which the sector
    has been loaded.
 
    Upon return, the rw_lock of the cache_entry for the cache slot
    will be held in shared_acquire mode. It is the caller's
-   responsibility to release the rw_lock or upgrade it. */
+   responsibility to release the rw_lock or upgrade it to
+   exclusive_acquire if necessary. */
 size_t
 cache_load (block_sector_t sector)
 {
@@ -152,16 +153,16 @@ clock_advance (void)
 static size_t
 clock_find (void)
 {
-  ASSERT (lock_held_by_current_thread (&get_slot_lock));
+  ASSERT (lock_held_by_current_thread (&cache_lock));
 
   while (true)
     {
       if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
         {
+          rw_lock_exclusive_acquire (&clock_hand->rw_lock);
           size_t cache_idx = clock_hand->cache_idx;
           clock_advance ();
           clock_timeout = 0;
-          rw_lock_exclusive_acquire (&clock_hand->rw_lock);
           
           return cache_idx;
         }
@@ -196,7 +197,9 @@ cache_evict_block (void)
   ce->accessed = false;
   ce->inode = NULL;
 
-  /* Convert exclusive_acquire on rw_lock to shared_acquire. */
+  /* Convert exclusive_acquire on rw_lock to shared_acquire so that
+     all paths through cache_get_slot() return a cache slot with
+     shared_acquire on the rw_lock. */
   rw_lock_exclusive_release (&ce->rw_lock);
   rw_lock_shared_acquire (&ce->rw_lock);
 
@@ -220,29 +223,25 @@ cache_find_block (block_sector_t sector)
       rw_lock_shared_release (&ce->rw_lock);
     }
 
-  return CACHE_NOT_PRESENT;
+  return BLOCK_NOT_PRESENT;
 }
 
-/* Find the index of the cache slot containing the data for the
-   block with sector number SECTOR, or get a new slot to hold the
-   data, evicting a block from the cache if necessary. 
-   
-   The caller is responsible for releasing the rw_lock obtained
-   through shared_acquire, or converting it to an exclusive_acquire
-   if needed. */
+/* Find the index of the cache slot containing the data of a block
+   with sector number SECTOR, or get a new slot to hold the block,
+   evicting a block from the cache if necessary. */
 static size_t
 cache_get_slot (block_sector_t sector)
 {
-  ASSERT (!lock_held_by_current_thread (&get_slot_lock));
+  ASSERT (!lock_held_by_current_thread (&cache_lock));
   
   size_t cache_idx;
   struct cache_entry *ce;
 
-  lock_acquire (&get_slot_lock);
+  lock_acquire (&cache_lock);
   cache_idx = cache_find_block (sector);
-  if (cache_idx != CACHE_NOT_PRESENT)
+  if (cache_idx != BLOCK_NOT_PRESENT)
     {
-      lock_release (&get_slot_lock);
+      lock_release (&cache_lock);
       return cache_idx;
     }
 
@@ -256,16 +255,16 @@ cache_get_slot (block_sector_t sector)
       ce = cache_metadata + cache_idx;
       rw_lock_shared_acquire (&ce->rw_lock);
       ce->sector_idx = sector;
-      lock_release (&get_slot_lock);
+      lock_release (&cache_lock);
       return cache_idx;
     }
 
   /* Cache is full, so evict a block from it's cache slot to
-     obtain a free slot. */
+     obtain a free slot for the new block. */
   cache_idx = cache_evict_block ();
   ce = cache_metadata + cache_idx;
   ce->sector_idx = sector;
-  lock_release (&get_slot_lock);
+  lock_release (&cache_lock);
   return cache_idx;
 }
 
@@ -285,7 +284,7 @@ cache_read_ahead (void *aux UNUSED)
       
       struct list_elem *e = list_pop_front (&read_ahead_list);
       struct sector_elem *s = list_entry (e, struct sector_elem, elem);
-      // FETCH BLOCK AT S->SECTOR
+      
       cache_load (s->sector);
     }
 }
