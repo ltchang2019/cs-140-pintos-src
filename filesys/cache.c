@@ -112,11 +112,20 @@ cache_init (void)
    responsibility to release the rw_lock or upgrade it to
    exclusive_acquire if necessary. */
 size_t
-cache_load (block_sector_t sector)
+cache_load (struct inode *inode, block_sector_t sector,
+            enum sector_type type)
 {
+  ASSERT (!lock_held_by_current_thread (&cache_lock));
+
+  lock_acquire (&cache_lock);
   size_t cache_idx = cache_get_slot (sector);
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  block_read (fs_device, sector, cache_slot);
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  ce->type = type;
+  ce->sector_idx = sector;
+  ce->accessed = true;
+  ce->inode = inode;
+
+  lock_release (&cache_lock);
 
   return cache_idx;
 }
@@ -243,18 +252,12 @@ cache_find_block (block_sector_t sector)
 static size_t
 cache_get_slot (block_sector_t sector)
 {
-  ASSERT (!lock_held_by_current_thread (&cache_lock));
-  
   size_t cache_idx;
   struct cache_entry *ce;
 
-  lock_acquire (&cache_lock);
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
-    {
-      lock_release (&cache_lock);
-      return cache_idx;
-    }
+    return cache_idx;
 
   /* Block not already in cache, so find a slot and load it in. */
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
@@ -265,17 +268,16 @@ cache_get_slot (block_sector_t sector)
     {
       ce = cache_metadata + cache_idx;
       rw_lock_shared_acquire (&ce->rw_lock);
-      ce->sector_idx = sector;
-      lock_release (&cache_lock);
+      void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+      block_read (fs_device, sector, cache_slot);
       return cache_idx;
     }
 
   /* Cache is full, so evict a block from it's cache slot to
      obtain a free slot for the new block. */
   cache_idx = cache_evict_block ();
-  ce = cache_metadata + cache_idx;
-  ce->sector_idx = sector;
-  lock_release (&cache_lock);
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  block_read (fs_device, sector, cache_slot);
   return cache_idx;
 }
 
@@ -296,7 +298,9 @@ cache_read_ahead (void *aux UNUSED)
       struct list_elem *e = list_pop_front (&read_ahead_list);
       struct sector_elem *s = list_entry (e, struct sector_elem, elem);
 
-      cache_load (s->sector);
+      // cache_load (s->sector);
+      // READ-AHEAD NOT YET USED
+      (void) s;
     }
 }
 

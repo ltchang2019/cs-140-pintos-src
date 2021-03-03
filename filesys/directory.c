@@ -100,14 +100,18 @@ lookup (const struct dir *dir, const char *name,
 
   for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
-    if (e.in_use && !strcmp (name, e.name)) 
-      {
-        if (ep != NULL)
-          *ep = e;
-        if (ofsp != NULL)
-          *ofsp = ofs;
-        return true;
-      }
+    {
+      // printf ("LOOKUP IN DIRECTORY.C DEBUG NAME: %s\n", name);
+      // printf ("LOOKUP IN DIRECTORY.C DEBUG E.NAME: %s\n", e.name);
+      if (e.in_use && !strcmp (name, e.name)) 
+        {
+          if (ep != NULL)
+            *ep = e;
+          if (ofsp != NULL)
+            *ofsp = ofs;
+          return true;
+        }
+    }
   return false;
 }
 

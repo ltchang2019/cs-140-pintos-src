@@ -56,12 +56,11 @@ byte_to_sector (const struct inode *inode, off_t pos)
   ASSERT (inode != NULL);
 
   /* Read inode_disk from cache. */
-  size_t cache_idx = cache_load (inode->sector);
+  size_t cache_idx = cache_load ((struct inode *) inode,
+                                 inode->sector, INODE);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   void *cache_slot = cache_idx_to_cache_slot (cache_idx);
   struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
-  ce->type = INODE;
-  ce->accessed = true;
   off_t length = inode_data->length;
   block_sector_t start = inode_data->start;
   rw_lock_shared_release (&ce->rw_lock);
@@ -204,12 +203,10 @@ inode_close (struct inode *inode)
       if (inode->removed) 
         {
           /* Read inode_disk from cache. */
-          size_t cache_idx = cache_load (inode->sector);
+          size_t cache_idx = cache_load (inode, inode->sector, INODE);
           struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
           void *cache_slot = cache_idx_to_cache_slot (cache_idx);
           struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
-          ce->type = INODE;
-          ce->accessed = true;
           off_t length = inode_data->length;
           block_sector_t start = inode_data->start;
           rw_lock_shared_release (&ce->rw_lock);
@@ -257,12 +254,9 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
         break;
 
       /* Read data block from cache. */
-      size_t cache_idx = cache_load (sector_idx);
+      size_t cache_idx = cache_load (inode, sector_idx, DATA);
       struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
       void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-      ce->type = DATA;
-      ce->accessed = true;
-      ce->inode = inode;
 
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
@@ -283,6 +277,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       offset += chunk_size;
       bytes_read += chunk_size;
     }
+
+  // cache_flush ();
 
   return bytes_read;
 }
@@ -319,13 +315,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
         break;
 
       /* Read data block from cache. */
-      size_t cache_idx = cache_load (sector_idx);
+      size_t cache_idx = cache_load (inode, sector_idx, DATA);
       struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
       void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-      ce->type = DATA;
-      ce->dirty = true;
-      ce->accessed = true;
-      ce->inode = inode;
 
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
@@ -342,6 +334,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
         }
 
       /* Release rw_lock on the cache_entry for this block. */
+      ce->dirty = true;
       rw_lock_shared_release (&ce->rw_lock);
 
       /* Advance. */
@@ -349,6 +342,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
     }
+
+  // cache_flush ();
 
   return bytes_written;
 }
@@ -378,12 +373,11 @@ off_t
 inode_length (const struct inode *inode)
 {
   /* Read inode_disk from cache. */
-  size_t cache_idx = cache_load (inode->sector);
+  size_t cache_idx = cache_load ((struct inode *) inode, 
+                                 inode->sector, INODE);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   void *cache_slot = cache_idx_to_cache_slot (cache_idx);
   struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
-  ce->type = INODE;
-  ce->accessed = true;
   off_t length = inode_data->length;
   rw_lock_shared_release (&ce->rw_lock);
 

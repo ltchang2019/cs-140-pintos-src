@@ -41,7 +41,8 @@ void *cache_idx_to_cache_slot (size_t cache_idx);
 struct cache_entry *cache_idx_to_cache_entry (size_t cache_idx);
 
 void cache_init (void);
-size_t cache_load (block_sector_t sector);
+size_t cache_load (struct inode *inode, block_sector_t sector,
+                   enum sector_type type);
 void cache_flush (void);
 
 #endif /* filesys/cache.h */
