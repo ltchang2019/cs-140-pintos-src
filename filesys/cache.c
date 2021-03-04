@@ -91,7 +91,7 @@ cache_init (void)
     }
 
   /* Initialize clock hand and timeout for eviction algorithm. */
-  clock_hand = cache_metadata + (CACHE_SIZE / 2);
+  clock_hand = cache_metadata + (CACHE_SIZE / 4);
   clock_timeout = 0;
 
   /* Initialize list and semaphore for read-ahead worker thread. */
@@ -142,14 +142,15 @@ cache_flush (void)
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
     {
       struct cache_entry *ce = cache_metadata + idx;
+
+      rw_lock_shared_acquire (&ce->rw_lock);
       if (ce->dirty)
         {
-          rw_lock_shared_acquire (&ce->rw_lock);
           void *cache_slot = cache_idx_to_cache_slot (idx);
           block_write (fs_device, ce->sector_idx, cache_slot);
           ce->dirty = false;
-          rw_lock_shared_release (&ce->rw_lock);
         }
+      rw_lock_shared_release (&ce->rw_lock);
     }
 }
 
@@ -178,12 +179,13 @@ clock_find (void)
 
   while (true)
     {
+      rw_lock_shared_acquire (&clock_hand->rw_lock);
       if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
         {
           /* Obtain the rw_lock for the cache slot with exclusive
              acquire to prevent race conditions caused by reads and
              writes on the block while it is being evicted. */
-          rw_lock_exclusive_acquire (&clock_hand->rw_lock);
+          rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
           size_t cache_idx = clock_hand->cache_idx;
           clock_advance ();
           clock_timeout = 0;
