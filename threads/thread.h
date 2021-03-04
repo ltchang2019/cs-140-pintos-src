@@ -130,6 +130,10 @@ struct thread
     struct list mmap_list;            /* List of mmap entries. */
 #endif
 
+// #ifdef FILESYS
+   struct list_elem rw_elem;
+// #endif
+
     /* Owned by thread.c. */
     unsigned magic;                   /* Detects stack overflow. */
   };

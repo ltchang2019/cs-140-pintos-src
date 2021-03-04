@@ -178,9 +178,6 @@ clock_find (void)
       rw_lock_shared_acquire (&clock_hand->rw_lock);
       if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
         {
-          /* Obtain the rw_lock for the cache slot with exclusive
-             acquire to prevent race conditions caused by reads and
-             writes on the block while it is being evicted. */
           rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
           size_t cache_idx = clock_hand->cache_idx;
           clock_advance ();
@@ -188,7 +185,8 @@ clock_find (void)
           
           return cache_idx;
         }
-      
+      rw_lock_shared_release (&clock_hand->rw_lock);
+
       /* Advance clock hand. */
       clock_advance ();
       clock_timeout++;
@@ -280,7 +278,7 @@ cache_load (block_sector_t sector)
 
       /* Have shared lock on cache slot, so can release eviction lock. */
       lock_release (&eviction_lock);
-      
+
       void *cache_slot = cache_idx_to_cache_slot (cache_idx);
       block_read (fs_device, sector, cache_slot);
       return cache_idx;

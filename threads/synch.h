@@ -65,9 +65,9 @@ struct rw_lock
   {
     struct lock lock;             /* Lock for atomic increments/decrements. */
     struct condition cond;        /* Condition variable. */
-    unsigned num_readers_active;  /* Number of current readers. */
-    unsigned num_writers_waiting; /* Number of waiting writers. */
-    bool writer_active;           /* Does a writer currently have rw_lock? */
+    struct list active_readers;
+    struct list waiting_writers;
+    struct thread *writer;
   };
 
 void rw_lock_init (struct rw_lock *);
@@ -77,6 +77,8 @@ void rw_lock_shared_to_exclusive (struct rw_lock *);
 void rw_lock_exclusive_acquire (struct rw_lock *);
 void rw_lock_exclusive_release (struct rw_lock *);
 void rw_lock_exclusive_to_shared (struct rw_lock *);
+bool current_thread_is_reader (struct rw_lock *);
+bool current_thread_is_writer (struct rw_lock *);
 
 /* Optimization barrier.
 
