@@ -523,7 +523,8 @@ rw_lock_shared_release (struct rw_lock *rw_lock)
 }
 
 /* Atomically converts shared hold on RW_LOCK to exclusive hold. Acquires 
-   rw_lock's internal lock, decrements reader count by one, waits to acquire exclusive hold on rw_lock, then releases internal lock. */
+   rw_lock's internal lock, decrements reader count by one, waits to acquire 
+   exclusive hold on rw_lock, then releases internal lock. */
 void 
 rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
 {

@@ -268,6 +268,7 @@ cache_load (block_sector_t sector)
     return cache_idx;
 
   /* Block not in cache, so find a free slot and load it in. */
+  lock_acquire (&eviction_lock);
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
 
   /* A free cache slot is available, so obtain the rw_lock on the
@@ -276,6 +277,10 @@ cache_load (block_sector_t sector)
     {
       ce = cache_metadata + cache_idx;
       rw_lock_shared_acquire (&ce->rw_lock);
+
+      /* Have shared lock on cache slot, so can release eviction lock. */
+      lock_release (&eviction_lock);
+      
       void *cache_slot = cache_idx_to_cache_slot (cache_idx);
       block_read (fs_device, sector, cache_slot);
       return cache_idx;
@@ -285,7 +290,6 @@ cache_load (block_sector_t sector)
      obtain a free slot for the new block. Can release eviction
      lock since we will have shared lock on evicted cache block,
      ensuring that the block will not be evicted by another process. */
-  lock_acquire (&eviction_lock);
   cache_idx = cache_evict_block ();
   lock_release (&eviction_lock);
 
