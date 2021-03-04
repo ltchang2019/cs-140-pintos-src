@@ -221,7 +221,7 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority, cur->nice, cur->recent_cpu);
   tid = t->tid = allocate_tid ();
 
-#if USERPROG
+#ifdef USERPROG
   init_p_info (t);
 #endif
 

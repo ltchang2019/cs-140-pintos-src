@@ -357,7 +357,8 @@ lock_release (struct lock *lock)
         }
     }
 
-  /* Signal the waiting thread of highest priority that lock is available. */
+  /* Signal the waiting thread of highest priority that lock is
+     now available. */
   lock->holder = NULL;
   lock->donated_priority = NO_DONATIONS_PRI;
   sema_up (&lock->semaphore);
@@ -462,4 +463,150 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
+}
+
+/* Initializes RW_LOCK. A rw_lock allows concurrent access for
+   readers, while writers require exclusive access. Thus, when
+   a writer has acquired the rw_lock, all other readers/writers
+   will be blocked until the writer holding the rw_lock has
+   finished writing and released it.
+
+   The rw_lock is implemented with a condition variable and an
+   ordinary lock. It is writer-preferring, which means that priority
+   is given to writers waiting for the rw_lock over readers. The
+   logic for the writer-preferring rw_lock is implemented using
+   lists containing the currently active readers and currently waiting 
+   writers, as well a reference to the current writer if the rw_lock has
+   been exclusively acquired. */
+void
+rw_lock_init (struct rw_lock *rw_lock)
+{
+  lock_init (&rw_lock->lock);
+  cond_init (&rw_lock->cond);
+  list_init (&rw_lock->active_readers);
+  list_init (&rw_lock->waiting_writers);
+  rw_lock->writer = NULL;
+}
+
+/* Acquires RW_LOCK as a reader, sleeping until it becomes available
+   if necessary. Sleeping will occur if there are one or more writers
+   waiting to acquire the rw_lock, or if the rw_lock is currently
+   held by a writer. After the rw_lock is acquired by the reader,
+   the reader is put in the rw_lock's active_readers list. */
+void 
+rw_lock_shared_acquire (struct rw_lock *rw_lock)
+{  
+  lock_acquire (&rw_lock->lock);
+  while (!list_empty (&rw_lock->waiting_writers) || rw_lock->writer != NULL)
+    cond_wait (&rw_lock->cond, &rw_lock->lock);
+
+  list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
+  lock_release (&rw_lock->lock);
+}
+
+/* Releases RW_LOCK as a reader. The reader is removed from the 
+   active_readers list, and if the active_readers list is empty, 
+   all readers/writers waiting for the rw_lock are signaled. */
+void
+rw_lock_shared_release (struct rw_lock *rw_lock)
+{
+  lock_acquire (&rw_lock->lock);
+  ASSERT (current_thread_is_reader (rw_lock));
+
+  list_remove (&thread_current ()->rw_elem);
+  if (list_empty (&rw_lock->active_readers))
+    cond_broadcast (&rw_lock->cond, &rw_lock->lock);
+
+  lock_release (&rw_lock->lock);
+}
+
+/* Atomically converts shared hold on RW_LOCK to exclusive hold. Acquires 
+   rw_lock's internal lock, removes thread from active_readers list, waits
+   to acquire exclusive hold on rw_lock, then releases internal lock. */
+void 
+rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
+{
+  lock_acquire (&rw_lock->lock);
+  ASSERT (current_thread_is_reader (rw_lock));
+
+  list_remove (&thread_current ()->rw_elem);
+  list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
+  while (!list_empty (&rw_lock->active_readers))
+    cond_wait (&rw_lock->cond, &rw_lock->lock);
+
+  list_remove (&thread_current ()->rw_elem);
+  rw_lock->writer = thread_current ();
+  lock_release (&rw_lock->lock);
+}
+
+/* Acquires RW_LOCK as a writer, sleeping until it becomes available
+   if necessary. If the writer sleeps, the thread is added to the 
+   waiting_writers list. After acquiring the rw_lock's internal lock, 
+   the thread is removed from the waiting_writers list and the writer
+   field is set to the calling thread. */
+void
+rw_lock_exclusive_acquire (struct rw_lock *rw_lock)
+{
+  lock_acquire (&rw_lock->lock);
+  list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
+  while (!list_empty (&rw_lock->active_readers) || rw_lock->writer != NULL)
+    cond_wait (&rw_lock->cond, &rw_lock->lock);
+
+  list_remove (&thread_current ()->rw_elem);
+  rw_lock->writer = thread_current ();
+  lock_release (&rw_lock->lock);
+}
+
+/* Releases RW_LOCK as a writer. The writer field is set to
+   NULL and all readers/writers waiting for the rw_lock are
+   signaled. */
+void
+rw_lock_exclusive_release (struct rw_lock *rw_lock)
+{
+  lock_acquire (&rw_lock->lock);
+  ASSERT (current_thread_is_writer (rw_lock));
+
+  rw_lock->writer = NULL;
+  cond_broadcast (&rw_lock->cond, &rw_lock->lock);
+  lock_release (&rw_lock->lock);
+}
+
+/* Atomically converts exclusive hold on RW_LOCK to shared hold. 
+   Acquires rw_lock's internal lock, sets the rw_lock's writer field 
+   to NULL, adds the calling thread to the active_readers list, then 
+   releases internal lock. */
+void 
+rw_lock_exclusive_to_shared (struct rw_lock *rw_lock)
+{
+  lock_acquire (&rw_lock->lock);
+  ASSERT (current_thread_is_writer (rw_lock));
+
+  rw_lock->writer = NULL;
+  list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
+  lock_release (&rw_lock->lock);
+}
+
+/* Returns true if current thread is reader for RW_LOCK and false if 
+   otherwise. */
+bool
+current_thread_is_reader (struct rw_lock *rw_lock)
+{
+  struct list_elem *e;
+  for (e = list_begin (&rw_lock->active_readers); e != list_end (&
+       rw_lock->active_readers); e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, rw_elem);
+      if (t == thread_current ())
+        return true;
+    }
+
+  return false;
+}
+
+/* Returns true if current thread is writer for RW_LOCK and false if 
+   otherwise. */
+bool
+current_thread_is_writer (struct rw_lock *rw_lock)
+{
+  return rw_lock->writer == thread_current ();
 }
