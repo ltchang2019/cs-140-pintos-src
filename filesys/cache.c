@@ -11,7 +11,7 @@ static struct cache_entry *cache_metadata;
 static struct bitmap *cache_bitmap;
 
 /* Lock for mutual exclusion on access to the cache. */
-static struct lock cache_search_lock;
+static struct lock eviction_lock;
 
 /* Clock hand and timeout for the eviction algorithm. */
 static struct cache_entry *clock_hand;
@@ -62,7 +62,7 @@ cache_idx_to_cache_entry (size_t cache_idx)
 
    More specifically, allocates memory for cache, cache
    metadata, and cache bitmap. Initializes the global
-   cache_search_lock for the eviction algorithm and individual
+   eviction_lock for the eviction algorithm and individual
    rw_locks for each of the cache entries. Spawns two
    worker threads to handle asynchronous read-ahead and
    periodic writes of dirty blocks back to disk. */
@@ -76,8 +76,8 @@ cache_init (void)
   if (cache == NULL || cache_metadata == NULL || cache_bitmap == NULL)
     PANIC ("cache_init: failed memory allocation for cache data structures.");
 
-  /* Initialize cache_search_lock. */
-  lock_init (&cache_search_lock);
+  /* Initialize eviction_lock. */
+  lock_init (&eviction_lock);
 
   /* Initialize fields including rw_lock for each cache_entry. */
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
@@ -171,7 +171,7 @@ clock_advance (void)
 static size_t
 clock_find (void)
 {
-  ASSERT (lock_held_by_current_thread (&cache_search_lock));
+  ASSERT (lock_held_by_current_thread (&eviction_lock));
 
   while (true)
     {
@@ -260,17 +260,16 @@ cache_load (block_sector_t sector)
   size_t cache_idx;
   struct cache_entry *ce;
 
-  lock_acquire (&cache_search_lock);
-
   /* Block already in cache, so just return the cache_idx. */
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
-    {
-      lock_release (&cache_search_lock);
       return cache_idx;
-    }
 
-  /* Block not in cache, so find a free slot and load it in. */
+  /* Block not in cache, so find a free slot and load it in.
+     Acquire eviction_lock to ensure eviction is disabled
+     until the we have acquired shared lock on block returned by 
+     bitmap_scan_and_flip(). */
+  lock_acquire (&eviction_lock);
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
 
   /* A free cache slot is available, so obtain the rw_lock on the
@@ -281,8 +280,8 @@ cache_load (block_sector_t sector)
       rw_lock_shared_acquire (&ce->rw_lock);
 
       /* Have shared lock on cache slot, so can release 
-         cache_search_lock. */
-      lock_release (&cache_search_lock);
+         eviction_lock. */
+      lock_release (&eviction_lock);
 
       void *cache_slot = cache_idx_to_cache_slot (cache_idx);
       block_read (fs_device, sector, cache_slot);
@@ -291,11 +290,11 @@ cache_load (block_sector_t sector)
 
   /* Cache is full, so evict a block from it's cache slot 
      to obtain a free slot for the new block. Can release 
-     cache_search_lock since we will have shared lock on 
+     eviction_lock since we will have shared lock on 
      evicted cache block, ensuring that the block will not 
      be evicted by another process. */
   cache_idx = cache_evict_block ();
-  lock_release (&cache_search_lock);
+  lock_release (&eviction_lock);
 
   void *cache_slot = cache_idx_to_cache_slot (cache_idx);
   block_read (fs_device, sector, cache_slot);
