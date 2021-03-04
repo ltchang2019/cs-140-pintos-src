@@ -523,7 +523,7 @@ rw_lock_shared_release (struct rw_lock *rw_lock)
 }
 
 /* Atomically converts shared hold on RW_LOCK to exclusive hold. Acquires 
-   rw_lock's internal lock, decrements reader count by one, then waits to acquire exclusive hold on lock. */
+   rw_lock's internal lock, decrements reader count by one, waits to acquire exclusive hold on rw_lock, then releases internal lock. */
 void 
 rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
 {
@@ -572,5 +572,20 @@ rw_lock_exclusive_release (struct rw_lock *rw_lock)
   lock_acquire (&rw_lock->lock);
   rw_lock->writer_active = false;
   cond_broadcast (&rw_lock->cond, &rw_lock->lock);
+  lock_release (&rw_lock->lock);
+}
+
+/* Atomically converts exclusive hold on RW_LOCK to shared hold. Acquires 
+   rw_lock's internal lock, sets writer_active to false, increments reader 
+   count by one, then releases internal lock. */
+void 
+rw_lock_exclusive_to_shared (struct rw_lock *rw_lock)
+{
+  // TODO: assert current thread is writer
+  ASSERT (rw_lock->writer_active);
+
+  lock_acquire (&rw_lock->lock);
+  rw_lock->writer_active = false;
+  rw_lock->num_readers_active++;
   lock_release (&rw_lock->lock);
 }
