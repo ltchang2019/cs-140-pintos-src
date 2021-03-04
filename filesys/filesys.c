@@ -22,11 +22,9 @@ filesys_init (bool format)
   if (fs_device == NULL)
     PANIC ("No file system device found, can't initialize file system.");
 
+  cache_init ();
   inode_init ();
   free_map_init ();
-
-  /* Initialize the buffer cache. */
-  cache_init ();
 
   if (format) 
     do_format ();
@@ -52,24 +50,10 @@ filesys_create (const char *name, off_t initial_size)
 {
   block_sector_t inode_sector = 0;
   struct dir *dir = dir_open_root ();
-  // bool success = (dir != NULL
-  //                 && free_map_allocate (1, &inode_sector)
-  //                 && inode_create (inode_sector, initial_size)
-  //                 && dir_add (dir, name, inode_sector));
-
-  bool a = free_map_allocate (1, &inode_sector);
-  bool b = inode_create (inode_sector, initial_size);
-  bool c = dir_add (dir, name, inode_sector);
-  bool success = a && b && c;
-
-  // Not sure why returned inode_sector is 0 when calling filesys_create()
-  // on a test executable like create-normal.
-
-  // It seems like the bit flips in the free map are not permanent, but
-  // I'm not sure if this is the only major issue or if there are other
-  // major bugs in the code.
-  printf ("\nDEBUGGING FILESYS_CREATE %d %d %d %d\n\n", a, b, c, inode_sector);
-
+  bool success = (dir != NULL
+                  && free_map_allocate (1, &inode_sector)
+                  && inode_create (inode_sector, initial_size)
+                  && dir_add (dir, name, inode_sector));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
