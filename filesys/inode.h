@@ -26,7 +26,9 @@
 #define NUM_FILE_MAX (NUM_DIR_INDIR + NUM_DOUBLE_INDIR)
 
 /* An indirect block contains sector numbers which
-   refer to blocks that contain actual data. */
+   refer to blocks that contain actual data.
+   
+   Must be exactly BLOCK_SECTOR_SIZE bytes in size. */
 struct indir_block
   {
     block_sector_t sectors[128];

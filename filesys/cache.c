@@ -86,7 +86,6 @@ cache_init (void)
       ce->sector_idx = SECTOR_NOT_PRESENT;
       ce->cache_idx = idx;
       ce->dirty = false;
-      ce->accessed = false;
       rw_lock_init (&ce->rw_lock);
     }
 
@@ -121,7 +120,6 @@ cache_get_block (block_sector_t sector, enum sector_type type)
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   ce->type = type;
   ce->sector_idx = sector;
-  ce->accessed = true;
 
   return cache_idx;
 }
@@ -139,7 +137,7 @@ cache_free_slot (block_sector_t sector, size_t idx)
 {
   size_t cache_idx = idx;
 
-  if (idx == CACHE_IDX_SEARCH)
+  if (cache_idx == CACHE_IDX_SEARCH)
     {
       cache_idx = cache_find_block (sector);
       if (cache_idx == BLOCK_NOT_PRESENT)
@@ -153,7 +151,6 @@ cache_free_slot (block_sector_t sector, size_t idx)
   rw_lock_shared_to_exclusive (&ce->rw_lock);
   ce->sector_idx = SECTOR_NOT_PRESENT;
   ce->dirty = false;
-  ce->accessed = false;
   bitmap_reset (cache_bitmap, cache_idx);
   rw_lock_exclusive_release (&ce->rw_lock);
 }
@@ -249,7 +246,6 @@ cache_evict_block (void)
   /* Clear appropriate fields in cache_entry. */
   ce->sector_idx = SECTOR_NOT_PRESENT;
   ce->dirty = false;
-  ce->accessed = false;
 
   /* Atomically convert exclusive_acquire on rw_lock to shared_acquire 
      so that all paths through cache_load() return a cache slot with
@@ -362,11 +358,15 @@ cache_read_ahead (void *aux UNUSED)
       ASSERT (!list_empty (&read_ahead_list));
       
       struct list_elem *e = list_pop_front (&read_ahead_list);
-      struct sector_elem *s = list_entry (e, struct sector_elem, elem);
+      struct sector_elem *se = list_entry (e, struct sector_elem, elem);
 
-      // cache_load (s->sector);
-      // READ-AHEAD NOT YET USED
-      (void) s;
+      size_t cache_idx = cache_get_block (se->sector, DATA);
+      struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+      rw_lock_shared_release (&ce->rw_lock);
+
+      /* Deallocate memory for sector elem. */
+      free (se);
+      se = NULL;
     }
 }
 
