@@ -244,7 +244,10 @@ add_new_block (struct inode_disk *i_data, block_sector_t sector)
         {
           block_sector_t i_sector = 0;
           if (!free_map_allocate (1, &i_sector))
-            return success;
+            {
+              rw_lock_exclusive_release (&di_ce->rw_lock);
+              return success;
+            }
 
           di_block->sectors[block_num_doubly_indir] = i_sector;
         }
