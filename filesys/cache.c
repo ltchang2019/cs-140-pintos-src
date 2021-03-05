@@ -172,7 +172,7 @@ cache_flush (void)
       struct cache_entry *ce = cache_metadata + idx;
 
       rw_lock_shared_acquire (&ce->rw_lock);
-      if (ce->dirty)
+      if (ce->sector_idx != SECTOR_NOT_PRESENT && ce->dirty)
         {
           void *cache_slot = cache_idx_to_cache_slot (idx);
           block_write (fs_device, ce->sector_idx, cache_slot);
