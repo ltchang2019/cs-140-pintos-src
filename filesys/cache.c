@@ -83,7 +83,7 @@ cache_init (void)
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
     {
       struct cache_entry *ce = cache_metadata + idx;
-      ce->sector_idx = SIZE_MAX;
+      ce->sector_idx = SECTOR_NOT_PRESENT;
       ce->cache_idx = idx;
       ce->dirty = false;
       ce->accessed = false;
@@ -124,6 +124,38 @@ cache_get_block (block_sector_t sector, enum sector_type type)
   ce->accessed = true;
 
   return cache_idx;
+}
+
+/* Free the cache slot containing a block with sector number SECTOR,
+   and reset the fields of the corresponding cache entry. If the
+   block with sector number SECTOR is not in the cache, nothing
+   needs to be done.
+   
+   If IDX is equal to CACHE_IDX_SEARCH, first search the cache for
+   the block with sector number SECTOR. Otherwise, use the passed
+   in value to index to the correct cache slot. */
+void
+cache_free_slot (block_sector_t sector, size_t idx)
+{
+  size_t cache_idx = idx;
+
+  if (idx == CACHE_IDX_SEARCH)
+    {
+      cache_idx = cache_find_block (sector);
+      if (cache_idx == BLOCK_NOT_PRESENT)
+        return;
+    }
+
+  struct cache_entry *ce = cache_metadata + cache_idx;
+
+  /* Convert rw_lock on cache_entry from shared_acquire to
+     exclusive_acquire to reset fields and free cache slot. */
+  rw_lock_shared_to_exclusive (&ce->rw_lock);
+  ce->sector_idx = SECTOR_NOT_PRESENT;
+  ce->dirty = false;
+  ce->accessed = false;
+  bitmap_reset (cache_bitmap, cache_idx);
+  rw_lock_exclusive_release (&ce->rw_lock);
 }
 
 /* Flushes the cache by writing all dirty blocks back to disk.
@@ -215,7 +247,7 @@ cache_evict_block (void)
     }
   
   /* Clear appropriate fields in cache_entry. */
-  ce->sector_idx = SIZE_MAX;
+  ce->sector_idx = SECTOR_NOT_PRESENT;
   ce->dirty = false;
   ce->accessed = false;
 
@@ -263,11 +295,11 @@ cache_load (block_sector_t sector)
   /* Block already in cache, so just return the cache_idx. */
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
-      return cache_idx;
+    return cache_idx;
 
   /* Block not in cache, so find a free slot and load it in.
      Acquire eviction_lock to ensure eviction is disabled
-     until the we have acquired shared lock on block returned by 
+     until we have acquired shared lock on block returned by 
      bitmap_scan_and_flip(). */
   lock_acquire (&eviction_lock);
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);

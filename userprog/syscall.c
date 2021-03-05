@@ -435,7 +435,6 @@ syscall_read (int fd, void *buf, unsigned size)
 
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_read(). */
-  
   pin_frames (buf, size);
   bytes_read = file_read (open_file, buf, size);
   unpin_frames (buf, size);

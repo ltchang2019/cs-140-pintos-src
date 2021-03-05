@@ -5,6 +5,33 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 
+/* The total number of sectors (indir_block or data) that
+   can be pointed to by an inode_disk struct. */
+#define INODE_SECTORS 126
+
+/* The number of data sectors that can be pointed to
+   directly by an inode_disk struct. */
+#define NUM_DIRECT 124
+
+/* The number of data sectors that can be pointed to
+   by an indir_block struct. */
+#define NUM_INDIRECT 128
+
+/* Constants that are helpful for byte position to sector
+   calculations. */
+#define INDIR NUM_DIRECT
+#define DOUBLE_INDIR (NUM_DIRECT + 1)
+#define NUM_DIR_INDIR (NUM_DIRECT + NUM_INDIRECT)
+#define NUM_DOUBLE_INDIR (NUM_INDIRECT * NUM_INDIRECT)
+#define NUM_FILE_MAX (NUM_DIR_INDIR + NUM_DOUBLE_INDIR)
+
+/* An indirect block contains sector numbers which
+   refer to blocks that contain actual data. */
+struct indir_block
+  {
+    block_sector_t sectors[128];
+  };
+
 struct bitmap;
 
 void inode_init (void);
