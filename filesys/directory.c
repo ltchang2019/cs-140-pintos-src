@@ -14,12 +14,78 @@ struct dir
   };
 
 /* A single directory entry. */
-struct dir_entry 
+struct dir_entry
   {
     block_sector_t inode_sector;        /* Sector number of header. */
     char name[NAME_MAX + 1];            /* Null terminated file name. */
     bool in_use;                        /* In use or free? */
   };
+
+static struct inode *path_to_inode (char *path);
+static struct dir *get_start_dir (char *path);
+
+/* 
+  1. Determine whether relative or absolute (/ vs ., .., or name)
+  3. Get dir of root directory OR cwd or ..
+  2. Chop off leading chars if necessary
+  4. Get first token up to next / and call lookup (dir, token, dir_entry, ofsp)
+  5. Load inode of dir_entry
+  6. Chop off / if not at end and repeat steps 4 & 5
+
+  /a/b/c
+  ./a/b/c
+  c
+ */
+static struct inode * 
+path_to_inode (char *path)
+{
+  char *token, *ptr;
+
+  struct dir *dir = get_start_dir (path);
+
+  // Append trailing slash to smooth out strtok_r
+  strlcat (path, "/", strlen (path) + 1);
+
+  struct inode *prev_inode = NULL;
+  struct inode *next_inode = NULL;
+  for (token = strtok_r (path, "/", &ptr); token != NULL; 
+       token = strtok_r (NULL, "/", &ptr))
+    {
+      const struct dir *const_dir = (const struct dir *) dir;
+      const char *const_name = (const char *) token;
+      
+      // TODO: read lock before search? Or taken care of in inode_read_at?
+      prev_inode = next_inode;
+      if (dir_lookup (const_dir, const_name, &next_inode))
+        {
+          dir->inode = next_inode;
+          dir->pos = 0;
+        }
+      else
+        return NULL;
+
+      inode_close (prev_inode);
+    }
+  
+  return next_inode;
+}
+
+static struct dir *
+get_start_dir (char *path)
+{
+  struct dir *dir;
+  if (path[0] == '/')
+    {
+      path = path + 1;
+      dir = dir_open_root ();
+    }
+  else
+    {
+      // TODO: add get_cwd
+    }
+
+  return dir;
+}
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
