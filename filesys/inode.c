@@ -528,11 +528,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           rw_lock_shared_to_exclusive (&d_ce->rw_lock);
           d_ce->dirty = true;
 
-          /* Calculate number of zero bytes to write. */
-          int chunk = size < BLOCK_SECTOR_SIZE ? size : BLOCK_SECTOR_SIZE;
-
-          /* Write full or partial block of zeros to the new sector. */
-          memset (d_cache_slot, 0, chunk);
+          /* Write full block of zeros to the new sector. */
+          memset (d_cache_slot, 0, BLOCK_SECTOR_SIZE);
           rw_lock_exclusive_release (&d_ce->rw_lock);
 
           /* Get inode_disk block of file from cache. */
@@ -635,11 +632,15 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           d_ce->dirty = true;
 
           /* Calculate number of bytes to write. */
-          int chunk = size < BLOCK_SECTOR_SIZE ? size : BLOCK_SECTOR_SIZE;
+          int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
+          int chunk = size < sector_left ? size : sector_left;
 
-          /* Write full block of data to the new sector. */
+          /* Write full or partial block of data to the new sector. */
           memset (d_cache_slot, 0, BLOCK_SECTOR_SIZE);
-          memcpy (d_cache_slot, buffer + bytes_written, chunk);
+          if (sector_ofs == 0 && chunk == BLOCK_SECTOR_SIZE)
+            memcpy (d_cache_slot, buffer + bytes_written, BLOCK_SECTOR_SIZE);
+          else
+            memcpy (d_cache_slot + sector_ofs, buffer + bytes_written, chunk);
           rw_lock_exclusive_release (&d_ce->rw_lock);
 
           /* Get inode_disk block of file from cache. */
