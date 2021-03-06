@@ -8,6 +8,7 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "filesys/path.h"
+#include "threads/thread.h"
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -49,30 +50,49 @@ filesys_done (void)
 bool
 filesys_create (const char *path, off_t initial_size, enum inode_type type) 
 {
+  printf ("FILESYS CREATE\n");
+
   /* Extract base and file/directory name. */
   char *base = (char *) path;
   char *name = NULL;
   extract_base_and_name (&base, &name);
 
+  printf ("EXTRACTED NAME AND BASE\n");
+
+  printf ("Base: %s\n", base);
+  printf ("Name: %s\n", name);
+
   /* If name == NULL, no slashes so use cwd. Else, open last 
      subdirectory of base. */
   struct inode *parent_inode;
   if (name == NULL)
-    parent_inode = inode_open (0); // CWD
+    {
+      name = (char *) base;
+      parent_inode = thread_current ()->cwd_inode; 
+      // works with inode_open (ROOT_DIR_SECTOR)
+      printf ("Open count: %d\n", parent_inode->open_cnt);
+      printf ("Sector: %u\n", parent_inode->sector);
+      printf ("Removed: %d\n", parent_inode->removed);
+    }
   else
     parent_inode = path_to_inode (base);
+  
+  printf ("OPENED PARENT INODE\n");
   
   /* Acquire lock on directory's in-memory inode. If directory
      already removed, release and return false. */
   lock_acquire (&parent_inode->lock);
 
+  printf ("ACQUIRED PARENT LOCK\n");
+  
   if (parent_inode->removed)
     {
+      printf ("REMOVED\n");
       lock_release (&parent_inode->lock);
       return false;
     }
 
-  /* Atomically create new inode_disk and add dir_entry. Free resources
+  /* Atomically create new inode_disk and add dir_entry. Frees resources
      if any part fails. */
   block_sector_t new_inode_sector = 0;
   struct dir *parent_dir = dir_open (parent_inode);
@@ -80,6 +100,8 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
                   && free_map_allocate (1, &new_inode_sector)
                   && inode_create (new_inode_sector, initial_size, type)
                   && dir_add (parent_dir, name, new_inode_sector));
+
+  printf ("CREATED DIRECTORY\n");
 
   /* If creating directory, add current and parent dir_entries. */
   if (type == DIR)
@@ -90,14 +112,16 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
                  && dir_add (new_dir, "..", parent_inode->sector));
       dir_close (new_dir);
     }
+
+  printf ("CREATED . AND ..\n");
   
   /* If new directory creation at all failed, set allocated disk
      block to free. */
   if (!success && new_inode_sector != 0) 
     free_map_release (new_inode_sector, 1);
 
-  dir_close (parent_dir);
   lock_release (&parent_inode->lock);
+  dir_close (parent_dir);
 
   return success;
 }
@@ -142,6 +166,9 @@ do_format (void)
   free_map_create ();
   if (!dir_create (ROOT_DIR_SECTOR, 16))
     PANIC ("root directory creation failed");
+  
+  thread_current ()->cwd_inode = inode_open (ROOT_DIR_SECTOR);
+
   free_map_close ();
   printf ("done.\n");
 }
