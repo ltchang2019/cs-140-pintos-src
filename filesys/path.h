@@ -7,5 +7,6 @@
 
 struct inode *path_to_inode (char *path);
 struct dir *get_start_dir (char *path);
+void extract_base_and_name (char **path, char **name);
 
 #endif /* filesys/path.h */

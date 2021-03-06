@@ -20,6 +20,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/path.h"
+#include "filesys/cache.h"
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -329,7 +330,7 @@ syscall_create (const char *file_name, unsigned initial_size)
   lock_acquire (&filesys_lock);
 
   pin_frames (file_name, len);
-  bool create_succeeded = filesys_create (file_name, initial_size);
+  bool create_succeeded = filesys_create (file_name, initial_size, FILE);
   unpin_frames (file_name, len);
 
   lock_release (&filesys_lock);
@@ -559,28 +560,10 @@ syscall_munmap (mapid_t mapid)
   munmap (mapid);
 }
 
-static inline void
-set_base_and_end (char **dir, char **end)
+/* Creates a new directory given path DIR_PATH. Returns false if
+   directory creation failed for any reason. */
+static bool
+syscall_mkdir (const char *dir_path)
 {
-  /* Get pointer to last slash. */
-  char *dir_name = strrchr (*dir, '/');
-  if (dir_name == NULL)
-    return;
-  
-  /* Set slash to null terminator and set END to directory 
-     name (last token). */
-  *dir_name = '\0';
-  *end = dir_name + 1;
-}
-
-static void
-syscall_mkdir (const char *dir)
-{
-  char *leading_path = (char *) dir;
-  char *dir_name = NULL;
-  /* Think error checking is handled in path_to_inode... not sure though */
-  set_base_and_end (&leading_path, &dir_name);
-
-  struct inode *inode = path_to_inode (leading_path);
-  // TODO: add dir_entry and disk data
+  return filesys_create (dir_path, 16 * sizeof (struct dir_entry), DIR);
 }

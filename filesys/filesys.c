@@ -7,6 +7,7 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "filesys/path.h"
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -46,17 +47,44 @@ filesys_done (void)
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool
-filesys_create (const char *name, off_t initial_size) 
+filesys_create (const char *path, off_t initial_size, enum inode_type type) 
 {
+  /* Extract base and file/directory name. */
+  char *base = (char *) path;
+  char *name = NULL;
+  extract_base_and_name (&base, &name);
+
+  /* If name == NULL, no slashes so use cwd. Else, open last 
+     subdirectory of base. */
+  struct inode *inode;
+  if (name == NULL)
+    inode = inode_open (0); // CWD
+  else
+    inode = path_to_inode (base);
+  
+  /* Acquire lock on directory's in-memory inode. If directory
+     already removed, release and return false. */
+  lock_acquire (&inode->lock);
+  
+  if (inode->removed)
+    {
+      lock_release (&inode->lock);
+      return false;
+    }
+
+  /* Atomically create new inode_disk and add dir_entry. Free resources
+     if any part fails. */
   block_sector_t inode_sector = 0;
-  struct dir *dir = dir_open_root ();
+  struct dir *dir = dir_open (inode);
   bool success = (dir != NULL
                   && free_map_allocate (1, &inode_sector)
-                  && inode_create (inode_sector, initial_size, FILE)
+                  && inode_create (inode_sector, initial_size, type)
                   && dir_add (dir, name, inode_sector));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
+
+  lock_release (&inode->lock);
 
   return success;
 }
