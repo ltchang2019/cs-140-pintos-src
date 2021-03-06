@@ -48,11 +48,7 @@ fsutil_cat (char **argv)
       off_t pos = file_tell (file);
       off_t n = file_read (file, buffer, PGSIZE);
       if (n == 0)
-        {
-          printf ("N == %zu\n", n);
-          break;
-        }
-        //break;
+        break;
 
       hex_dump (pos, buffer, n, true); 
     }

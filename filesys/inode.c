@@ -59,10 +59,6 @@ byte_to_sector (const struct inode *inode, off_t pos)
   void *cache_slot = cache_idx_to_cache_slot (cache_idx);
   struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
 
-  printf ("CREATE_NORMAL %zu %zu\n", inode->sector, inode_data->sectors[0]);
-  printf ("CREATE_NORMAL %zu %zu\n", inode->sector, inode_data->sectors[1]);
-  printf ("CREATE_NORMAL %zu %zu\n", inode->sector, inode_data->sectors[2]);
-
   /* No data since byte offset POS is past end of file. */
   if (pos >= inode_data->length)
     {
@@ -156,135 +152,137 @@ free_disk_block (block_sector_t sector, size_t cache_idx)
 }
 
 /* Adds the sector number SECTOR of a newly allocated disk
-   block to the disk_inode I_DATA of a file. If necessary,
-   allocate an indirect block or a doubly indirect block
-   to contain the entry for the new sector. Return true
-   if operation is successful and false otherwise. */
+   block to the inode_disk I_DATA of a file. Allocate
+   indirect blocks and doubly indirect blocks as needed
+   to contain the new sector entry. Returns true if
+   operation is successful and false otherwise. 
+   
+   At function entry, the rw_lock for the inode_disk is
+   held in exclusive_acquire mode. At function exit, this
+   rw_lock is still held in exclusive_acquire mode. All
+   other acquired locks must be properly released before
+   function exit. */
 static bool
 add_new_block (struct inode_disk *i_data, block_sector_t sector)
 {
-  bool success = false;
-  off_t length = i_data->length;
-  off_t length_block_num = length / BLOCK_SECTOR_SIZE;
+  bool new_indir = false;
+  bool new_double_indir = false;
+  bool new_double_indir_indir = false;
 
-  if (length == 0)
+  /* New sector entry can be placed in the direct block. */
+  for (size_t idx = 0; idx < NUM_DIRECT; idx++)
+    if (i_data->sectors[idx] == SECTOR_NOT_PRESENT)
+      {
+        i_data->sectors[idx] = sector;
+        return true;
+      }
+
+  /* Need to allocate indirect block for sector entry. */
+  if (i_data->sectors[INDIR] == SECTOR_NOT_PRESENT)
     {
-      /* This is the first data block of the file. */
-      i_data->sectors[0] = sector;
-      success = true;
+      block_sector_t i_sector = 0;
+      if (!free_map_allocate (1, &i_sector))
+        return false;
+
+      i_data->sectors[INDIR] = i_sector;
+      new_indir = true;
     }
-  else if (length_block_num < NUM_DIRECT - 1)
+
+  /* Get indirect block from cache. */
+  block_sector_t i_sector = i_data->sectors[INDIR];
+  size_t i_idx = cache_get_block (i_sector, DATA);
+  struct cache_entry *i_ce = cache_idx_to_cache_entry (i_idx);
+  void *i_slot = cache_idx_to_cache_slot (i_idx);
+  struct indir_block *i_block = (struct indir_block *) i_slot;
+  rw_lock_shared_to_exclusive (&i_ce->rw_lock);
+  i_ce->dirty = true;
+
+  /* Set default values for indirect block if new. */
+  if (new_indir)
+    for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
+      i_block->sectors[idx] = SECTOR_NOT_PRESENT;
+  
+  /* New sector entry can be placed in indirect block. */
+  for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
+    if (i_block->sectors[idx] == SECTOR_NOT_PRESENT)
+      {
+        i_block->sectors[idx] = sector;
+        rw_lock_exclusive_release (&i_ce->rw_lock);
+        return true;
+      }
+  rw_lock_exclusive_release (&i_ce->rw_lock);
+
+  /* Need to allocate doubly indirect block for sector entry. */
+  if (i_data->sectors[DOUBLE_INDIR] == SECTOR_NOT_PRESENT)
     {
-      /* Put new sector entry in direct block (disk_inode). */
-      i_data->sectors[length_block_num + 1] = sector;
-      success = true;
+      block_sector_t di_sector = 0;
+      if (!free_map_allocate (1, &di_sector))
+        return false;
+
+      i_data->sectors[DOUBLE_INDIR] = di_sector;
+      new_double_indir = true;
     }
-  else if (length_block_num < NUM_DIR_INDIR - 1)
+
+  /* Get doubly indirect block from cache. */
+  block_sector_t di_sector = i_data->sectors[DOUBLE_INDIR];
+  size_t di_idx = cache_get_block (di_sector, DATA);
+  struct cache_entry *di_ce = cache_idx_to_cache_entry (di_idx);
+  void *di_slot = cache_idx_to_cache_slot (di_idx);
+  struct indir_block *di_block = (struct indir_block *) di_slot;
+  rw_lock_shared_to_exclusive (&di_ce->rw_lock);
+  di_ce->dirty = true;
+
+  /* Set default values for doubly indirect block if new. */
+  if (new_double_indir)
+    for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
+      di_block->sectors[idx] = SECTOR_NOT_PRESENT;
+
+  /* Iterate through indirect blocks of doubly indirect block. */
+  for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
     {
-      /* Need to allocate indirect block. */
-      if (length_block_num == NUM_DIRECT - 1)
+      if (di_block->sectors[idx] == SECTOR_NOT_PRESENT)
         {
-          block_sector_t i_sector = 0;
-          if (!free_map_allocate (1, &i_sector))
-            return success;
-
-          i_data->sectors[INDIR] = i_sector;
-        }
-
-      /* Get indirect block from cache. */
-      block_sector_t i_sector = i_data->sectors[INDIR];
-      size_t cache_idx = cache_get_block (i_sector, DATA);
-      struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
-      void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-      struct indir_block *i_block = (struct indir_block *) cache_slot;
-      rw_lock_shared_to_exclusive (&ce->rw_lock);
-      ce->dirty = true;
-
-      /* Set all entries to SECTOR_NOT_PRESENT if indirect
-         block is newly allocated. */
-      if (length_block_num == NUM_DIRECT - 1)
-        {
-          for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
-            i_block->sectors[idx] = SECTOR_NOT_PRESENT;
-        }
-
-      /* Add new entry to indirect block. */
-      i_block->sectors[length_block_num - NUM_DIRECT + 1] = sector;
-      rw_lock_exclusive_release (&ce->rw_lock);
-      success = true;
-    }
-  else if (length_block_num < NUM_FILE_MAX - 1)
-    {
-      off_t block_num_indir = length_block_num - NUM_DIR_INDIR + 1;
-      off_t block_num_doubly_indir = block_num_indir / NUM_INDIRECT;
-
-      /* Need to allocate doubly indirect block. */
-      if (block_num_indir == 0)
-        {
-          block_sector_t di_sector = 0;
-          if (!free_map_allocate (1, &di_sector))
-            return success;
-
-          i_data->sectors[DOUBLE_INDIR] = di_sector;
-        }
-
-      /* Get doubly indirect block from cache. */
-      block_sector_t di_sector = i_data->sectors[DOUBLE_INDIR];
-      size_t di_cache_idx = cache_get_block (di_sector, DATA);
-      struct cache_entry *di_ce = cache_idx_to_cache_entry (di_cache_idx);
-      void *di_cache_slot = cache_idx_to_cache_slot (di_cache_idx);
-      struct indir_block *di_block = (struct indir_block *) di_cache_slot;
-      rw_lock_shared_to_exclusive (&di_ce->rw_lock);
-      di_ce->dirty = true;
-
-      /* Set all entries to SECTOR_NOT_PRESENT if doubly
-         indirect block is newly allocated. */
-      if (block_num_indir == 0)
-        {
-          for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
-            di_block->sectors[idx] = SECTOR_NOT_PRESENT;
-        }
-
-      /* Need to allocate indirect block in doubly indirect block. */
-      if (block_num_indir % NUM_INDIRECT == 0)
-        {
-          block_sector_t i_sector = 0;
-          if (!free_map_allocate (1, &i_sector))
+          /* Allocate new indirect block in doubly indirect block. */
+          block_sector_t dii_sector = 0;
+          if (!free_map_allocate (1, &dii_sector))
             {
               rw_lock_exclusive_release (&di_ce->rw_lock);
-              return success;
+              return false;
             }
-
-          di_block->sectors[block_num_doubly_indir] = i_sector;
+          
+          di_block->sectors[idx] = dii_sector;
+          new_double_indir_indir = true;
         }
 
-      /* Get indirect block from cache. */
-      block_sector_t i_sector = di_block->sectors[block_num_doubly_indir];
-      rw_lock_exclusive_release (&di_ce->rw_lock);
+      /* Get indirect block in doubly indirect block from cache. */
+      block_sector_t dii_sector = di_block->sectors[idx];
+      size_t dii_idx = cache_get_block (dii_sector, DATA);
+      struct cache_entry *dii_ce = cache_idx_to_cache_entry (dii_idx);
+      void *dii_slot = cache_idx_to_cache_slot (dii_idx);
+      struct indir_block *dii_block = (struct indir_block *) dii_slot;
+      rw_lock_shared_to_exclusive (&dii_ce->rw_lock);
+      dii_ce->dirty = true;
 
-      size_t i_cache_idx = cache_get_block (i_sector, DATA);
-      struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
-      void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
-      struct indir_block *i_block = (struct indir_block *) i_cache_slot;
-      rw_lock_shared_to_exclusive (&i_ce->rw_lock);
-      i_ce->dirty = true;
+      /* Set default values for indirect block if new. */
+      if (new_double_indir_indir)
+        for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
+          dii_block->sectors[idx] = SECTOR_NOT_PRESENT;
 
-      /* Set all entries to SECTOR_NOT_PRESENT if indirect
-         block is newly allocated. */
-      if (block_num_indir % NUM_INDIRECT == 0)
-        {
-          for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
-            i_block->sectors[idx] = SECTOR_NOT_PRESENT;
-        }
-
-      /* Add new entry to indirect block in doubly indirect block. */
-      i_block->sectors[block_num_indir % NUM_INDIRECT] = sector;
-      rw_lock_exclusive_release (&i_ce->rw_lock);
-
-      success = true;
+      /* New sector entry can be placed in indirect block. */
+      for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
+        if (dii_block->sectors[idx] == SECTOR_NOT_PRESENT)
+          {
+            dii_block->sectors[idx] = sector;
+            rw_lock_exclusive_release (&dii_ce->rw_lock);
+            rw_lock_exclusive_release (&di_ce->rw_lock);
+            return true;
+          }
+      rw_lock_exclusive_release (&dii_ce->rw_lock);
     }
-
-  return success;
+  
+  /* Out of space in file. */
+  rw_lock_exclusive_release (&di_ce->rw_lock);
+  return false;
 }
 
 /* Initializes the inode module. */
@@ -319,7 +317,7 @@ inode_create (block_sector_t sector, off_t length)
       for (size_t idx = 0; idx < INODE_SECTORS; idx++)
         disk_inode->sectors[idx] = SECTOR_NOT_PRESENT;
 
-      /* Put new disk_inode on disk. */
+      /* Put new inode_disk on disk. */
       block_write (fs_device, sector, disk_inode);
       free (disk_inode);
       success = true;
@@ -404,7 +402,7 @@ inode_close (struct inode *inode)
           void *cache_slot = cache_idx_to_cache_slot (cache_idx);
           struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
 
-          /* Free data blocks pointed to by direct block (disk_inode). */
+          /* Free data blocks pointed to by direct block (inode_disk). */
           for (size_t idx = 0; idx < NUM_DIRECT; idx++)
             {
               block_sector_t sector = inode_data->sectors[idx];
@@ -476,7 +474,7 @@ inode_close (struct inode *inode)
               free_disk_block (di_sector, cache_idx);
             }
 
-          /* Free the direct block (disk_inode). */
+          /* Free the direct block (inode_disk). */
           free_disk_block (inode->sector, cache_idx);
         }
 
@@ -594,7 +592,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           rw_lock_shared_to_exclusive (&i_ce->rw_lock);
           i_ce->dirty = true;
 
-          /* Write new sector number to disk_inode. */
+          /* Write new sector number to inode_disk. */
           if (!add_new_block (inode_data, new_sector))
             {
               rw_lock_exclusive_release (&i_ce->rw_lock);
