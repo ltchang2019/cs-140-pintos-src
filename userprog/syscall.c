@@ -8,8 +8,6 @@
 #include "userprog/process.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
-#include "filesys/file.h"
-#include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
@@ -19,6 +17,9 @@
 #include "vm/frame.h"
 #include "vm/mmap.h"
 #include "vm/page.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "filesys/path.h"
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -556,4 +557,30 @@ static void
 syscall_munmap (mapid_t mapid)
 {
   munmap (mapid);
+}
+
+static inline void
+set_base_and_end (char **dir, char **end)
+{
+  /* Get pointer to last slash. */
+  char *dir_name = strrchr (*dir, '/');
+  if (dir_name == NULL)
+    return;
+  
+  /* Set slash to null terminator and set END to directory 
+     name (last token). */
+  *dir_name = '\0';
+  *end = dir_name + 1;
+}
+
+static void
+syscall_mkdir (const char *dir)
+{
+  char *leading_path = (char *) dir;
+  char *dir_name = NULL;
+  /* Think error checking is handled in path_to_inode... not sure though */
+  set_base_and_end (&leading_path, &dir_name);
+
+  struct inode *inode = path_to_inode (leading_path);
+  // TODO: add dir_entry and disk data
 }
