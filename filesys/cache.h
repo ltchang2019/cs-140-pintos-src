@@ -7,12 +7,10 @@
 /* Number of sectors that fit in the cache. */
 #define CACHE_SIZE 64
 
-/* Value to indicate that a particular block is not
-   in the cache. */
+/* Value indicating block not found in cache. */
 #define BLOCK_NOT_PRESENT SIZE_MAX
 
-/* A default value to indicate that there is no sector
-   number at a particular entry in a block. */
+/* Value indicating unused sector entry in block. */
 #define SECTOR_NOT_PRESENT SIZE_MAX
 
 /* Sector type to distinguish between inodes and data. */
@@ -36,8 +34,8 @@ struct cache_entry
    to be placed in a list. */
 struct sector_elem 
   {
-    block_sector_t sector;  /* Sector number of disk location. */
-    struct list_elem elem;  /* List element. */
+    block_sector_t sector;      /* Sector number of disk location. */
+    struct list_elem elem;      /* List element. */
   };
 
 void *cache_idx_to_cache_slot (size_t cache_idx);

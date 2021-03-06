@@ -10,22 +10,21 @@
 #define INODE_SECTORS 126
 
 /* The number of data sectors that can be pointed to
-   directly by an inode_disk struct. */
+   directly by an inode_disk struct (direct block). */
 #define NUM_DIRECT 124
 
-/* The number of data sectors that can be pointed to
-   by an indir_block struct. */
+/* The number of data sectors that can be pointed to by
+   an indir_block struct (indirect block). */
 #define NUM_INDIRECT 128
 
 /* Constants needed for byte to sector calculations. */
 #define INDIR NUM_DIRECT
 #define DOUBLE_INDIR (NUM_DIRECT + 1)
 #define NUM_DIR_INDIR (NUM_DIRECT + NUM_INDIRECT)
-#define NUM_DOUBLE_INDIR (NUM_INDIRECT * NUM_INDIRECT)
-#define NUM_FILE_MAX (NUM_DIR_INDIR + NUM_DOUBLE_INDIR)
+#define NUM_FILE_MAX (NUM_DIR_INDIR + (NUM_INDIRECT * NUM_INDIRECT))
 
-/* An indirect block contains sector numbers which
-   refer to blocks that contain actual data.
+/* An indirect block contains sector numbers which refer
+   to blocks that contain actual data.
    
    Must be exactly BLOCK_SECTOR_SIZE bytes in size. */
 struct indir_block
