@@ -137,18 +137,18 @@ byte_to_sector (const struct inode *inode, off_t pos)
    returns the same `struct inode'. */
 static struct list open_inodes;
 
-static void free_disk_block (block_sector_t sector, size_t cache_idx);
+static void free_disk_block (block_sector_t sector);
 static bool add_new_block (struct inode_disk *i_data,
                            block_sector_t sector, off_t ofs);
 
 /* Free the cache slot corresponding to CACHE_IDX and free
    the disk sector corresponding to SECTOR. */
 static void
-free_disk_block (block_sector_t sector, size_t cache_idx)
+free_disk_block (block_sector_t sector)
 {
   ASSERT (sector != SECTOR_NOT_PRESENT);
   
-  cache_free_slot (sector, cache_idx);
+  cache_free_slot (sector);
   free_map_release (sector, 1);
 }
 
@@ -406,7 +406,7 @@ inode_close (struct inode *inode)
               if (sector == SECTOR_NOT_PRESENT)
                 break;
 
-              free_disk_block (sector, CACHE_IDX_SEARCH);
+              free_disk_block (sector);
             }
 
           /* Free data blocks pointed to by indirect block. */
@@ -425,11 +425,11 @@ inode_close (struct inode *inode)
                   if (sector == SECTOR_NOT_PRESENT)
                     break;
 
-                  free_disk_block (sector, CACHE_IDX_SEARCH);
+                  free_disk_block (sector);
                 }
               
               /* Free the indirect block. */
-              free_disk_block (i_sector, CACHE_IDX_SEARCH);
+              free_disk_block (i_sector);
             }
          
           /* Free data blocks pointed to by doubly indirect block. */
@@ -460,19 +460,19 @@ inode_close (struct inode *inode)
                       if (sector == SECTOR_NOT_PRESENT)
                         break;
 
-                      free_disk_block (sector, CACHE_IDX_SEARCH);
+                      free_disk_block (sector);
                     }
                   
                   /* Free the indirect block. */
-                  free_disk_block (i_sector, CACHE_IDX_SEARCH);
+                  free_disk_block (i_sector);
                 }
             
               /* Free the doubly indirect block. */
-              free_disk_block (di_sector, CACHE_IDX_SEARCH);
+              free_disk_block (di_sector);
             }
 
           /* Free the direct block (inode_disk). */
-          free_disk_block (inode->sector, CACHE_IDX_SEARCH);
+          free_disk_block (inode->sector);
         }
 
       free (inode); 

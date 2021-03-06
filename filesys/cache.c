@@ -127,27 +127,18 @@ cache_get_block (block_sector_t sector, enum sector_type type)
 /* Free the cache slot containing a block with sector number SECTOR,
    and reset the fields of the corresponding cache entry. If the
    block with sector number SECTOR is not in the cache, nothing
-   needs to be done.
-   
-   If IDX is equal to CACHE_IDX_SEARCH, first search the cache for
-   the block with sector number SECTOR. Otherwise, use the passed
-   in value to index to the correct cache slot. */
+   needs to be done. */
 void
-cache_free_slot (block_sector_t sector, size_t idx)
+cache_free_slot (block_sector_t sector)
 {
-  size_t cache_idx = idx;
-
-  if (cache_idx == CACHE_IDX_SEARCH)
-    {
-      cache_idx = cache_find_block (sector);
-      if (cache_idx == BLOCK_NOT_PRESENT)
-        return;
-    }
+  size_t cache_idx = cache_find_block (sector);
+  if (cache_idx == BLOCK_NOT_PRESENT)
+    return;
 
   struct cache_entry *ce = cache_metadata + cache_idx;
 
-  /* Convert rw_lock on cache_entry from shared_acquire to
-     exclusive_acquire to reset fields and free cache slot. */
+  /* Acquire rw_lock in shared_acquire mode if not held already
+     to reset fields and free cache slot. */
   if (!current_thread_is_reader (&ce->rw_lock))
   rw_lock_shared_acquire (&ce->rw_lock);
   ce->sector_idx = SECTOR_NOT_PRESENT;

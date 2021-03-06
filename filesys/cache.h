@@ -7,9 +7,6 @@
 /* Number of sectors that fit in the cache. */
 #define CACHE_SIZE 64
 
-/* Value to indicate the cache needs to be scanned. */
-#define CACHE_IDX_SEARCH SIZE_MAX
-
 /* Value to indicate that a particular block is not
    in the cache. */
 #define BLOCK_NOT_PRESENT SIZE_MAX
@@ -47,7 +44,7 @@ void *cache_idx_to_cache_slot (size_t cache_idx);
 struct cache_entry *cache_idx_to_cache_entry (size_t cache_idx);
 void cache_init (void);
 size_t cache_get_block (block_sector_t sector, enum sector_type type);
-void cache_free_slot (block_sector_t sector, size_t idx);
+void cache_free_slot (block_sector_t sector);
 void cache_flush (void);
 
 void read_ahead_signal (block_sector_t sector);
