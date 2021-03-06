@@ -56,35 +56,48 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
 
   /* If name == NULL, no slashes so use cwd. Else, open last 
      subdirectory of base. */
-  struct inode *inode;
+  struct inode *parent_inode;
   if (name == NULL)
-    inode = inode_open (0); // CWD
+    parent_inode = inode_open (0); // CWD
   else
-    inode = path_to_inode (base);
+    parent_inode = path_to_inode (base);
   
   /* Acquire lock on directory's in-memory inode. If directory
      already removed, release and return false. */
-  lock_acquire (&inode->lock);
-  
-  if (inode->removed)
+  lock_acquire (&parent_inode->lock);
+
+  if (parent_inode->removed)
     {
-      lock_release (&inode->lock);
+      lock_release (&parent_inode->lock);
       return false;
     }
 
   /* Atomically create new inode_disk and add dir_entry. Free resources
      if any part fails. */
-  block_sector_t inode_sector = 0;
-  struct dir *dir = dir_open (inode);
-  bool success = (dir != NULL
-                  && free_map_allocate (1, &inode_sector)
-                  && inode_create (inode_sector, initial_size, type)
-                  && dir_add (dir, name, inode_sector));
-  if (!success && inode_sector != 0) 
-    free_map_release (inode_sector, 1);
-  dir_close (dir);
+  block_sector_t new_inode_sector = 0;
+  struct dir *parent_dir = dir_open (parent_inode);
+  bool success = (parent_dir != NULL
+                  && free_map_allocate (1, &new_inode_sector)
+                  && inode_create (new_inode_sector, initial_size, type)
+                  && dir_add (parent_dir, name, new_inode_sector));
 
-  lock_release (&inode->lock);
+  /* If creating directory, add current and parent dir_entries. */
+  if (type == DIR)
+    {
+      struct dir *new_dir = dir_open (inode_open (new_inode_sector));
+      success = (success 
+                 && dir_add (new_dir, ".", new_inode_sector)
+                 && dir_add (new_dir, "..", parent_inode->sector));
+      dir_close (new_dir);
+    }
+  
+  /* If new directory creation at all failed, set allocated disk
+     block to free. */
+  if (!success && new_inode_sector != 0) 
+    free_map_release (new_inode_sector, 1);
+
+  dir_close (parent_dir);
+  lock_release (&parent_inode->lock);
 
   return success;
 }
