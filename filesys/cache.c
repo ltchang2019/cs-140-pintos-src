@@ -90,7 +90,7 @@ cache_init (void)
     }
 
   /* Initialize clock hand and timeout for eviction algorithm. */
-  clock_hand = cache_metadata + (CACHE_SIZE / 2);
+  clock_hand = cache_metadata + (CACHE_SIZE / 4);
   clock_timeout = 0;
 
   /* Initialize list and semaphore for read-ahead worker thread. */
@@ -173,7 +173,6 @@ cache_flush (void)
         {
           void *cache_slot = cache_idx_to_cache_slot (idx);
           block_write (fs_device, ce->sector_idx, cache_slot);
-          ce->dirty = false;
         }
       rw_lock_shared_release (&ce->rw_lock);
     }
@@ -288,16 +287,17 @@ cache_load (block_sector_t sector)
   size_t cache_idx;
   struct cache_entry *ce;
 
+  lock_acquire (&eviction_lock);
+
   /* Block already in cache, so just return the cache_idx. */
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
-    return cache_idx;
+    {
+      lock_release (&eviction_lock);
+      return cache_idx;
+    }
 
-  /* Block not in cache, so find a free slot and load it in.
-     Acquire eviction_lock to ensure eviction is disabled
-     until we have acquired shared lock on block returned by 
-     bitmap_scan_and_flip(). */
-  lock_acquire (&eviction_lock);
+  /* Block not in cache, so find a free slot and load it in. */
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
 
   /* A free cache slot is available, so obtain the rw_lock on the

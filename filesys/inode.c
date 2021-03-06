@@ -59,6 +59,10 @@ byte_to_sector (const struct inode *inode, off_t pos)
   void *cache_slot = cache_idx_to_cache_slot (cache_idx);
   struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
 
+  printf ("CREATE_NORMAL %zu %zu\n", inode->sector, inode_data->sectors[0]);
+  printf ("CREATE_NORMAL %zu %zu\n", inode->sector, inode_data->sectors[1]);
+  printf ("CREATE_NORMAL %zu %zu\n", inode->sector, inode_data->sectors[2]);
+
   /* No data since byte offset POS is past end of file. */
   if (pos >= inode_data->length)
     {
@@ -506,7 +510,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 
       /* Offset is past end of file, so return zero bytes read. */
       if (sector_idx == SECTOR_NOT_PRESENT)
-        return 0;
+        return bytes_read;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
       off_t inode_left = inode_length (inode) - offset;
@@ -642,10 +646,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
             }
           else 
             {
-              /* If the block does not contain data before or after the 
-                chunk we're writing, zero out the block before writing. */
-              if (sector_ofs == 0 && chunk >= sector_left)
-                memset (cache_slot, 0, BLOCK_SECTOR_SIZE);
+              /* Write part of user buffer to cache slot. */
               memcpy (cache_slot + sector_ofs, buffer + bytes_written, chunk);
             }
           rw_lock_shared_release (&ce->rw_lock);
