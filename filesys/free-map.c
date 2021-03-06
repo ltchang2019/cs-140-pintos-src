@@ -77,3 +77,9 @@ free_map_create (void)
   if (!bitmap_write (free_map, free_map_file))
     PANIC ("can't write free map");
 }
+
+void
+free_map_flush (void)
+{
+  bitmap_write (free_map, free_map_file);
+}
