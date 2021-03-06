@@ -1,4 +1,5 @@
 #include "filesys/path.h"
+#include "filesys/filesys.h"
 
 /* 
   /a/b/c
@@ -25,7 +26,8 @@ path_to_inode (char *path)
       // TODO: read lock before search? Or taken care of in inode_read_at?
       if (dir_lookup (const_dir, const_name, &inode))
         {
-          inode_close (dir->inode);
+          if (dir->inode->sector != ROOT_DIR_SECTOR)
+            inode_close (dir->inode);
           dir->inode = inode;
           dir->pos = 0;
         }
@@ -47,7 +49,7 @@ get_start_dir (char *path)
     }
   else
     {
-      // TODO: add get_cwd
+      dir = dir_open_cwd ();
     }
 
   return dir;
