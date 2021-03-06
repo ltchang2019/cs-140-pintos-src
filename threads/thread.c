@@ -17,6 +17,9 @@
 #include "userprog/process.h"
 #include "userprog/p_info.h"
 #endif
+#ifdef FILESYS
+#include "filesys/inode.h"
+#endif
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -225,6 +228,10 @@ thread_create (const char *name, int priority,
   init_p_info (t);
 #endif
 
+#ifdef FILESYS
+  t->cwd_inode = inode_reopen (cur->cwd_inode);
+#endif
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -339,6 +346,7 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  // dir_close (thread_current ()->cwd);
   list_remove (&thread_current ()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -683,7 +691,8 @@ init_thread (struct thread *t, const char *name, int priority,
 
 #ifdef FILESYS
 if (t != initial_thread)
-  t->cwd_inode = inode_reopen (thread_current ()->cwd_inode);
+  {
+  }
 #endif
 
   old_level = intr_disable ();

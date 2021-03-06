@@ -42,6 +42,7 @@ static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
 static mapid_t syscall_mmap (int fd, void *addr);
 static void syscall_munmap (mapid_t mapid);
+static bool syscall_mkdir (const char *dir_path);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
@@ -212,6 +213,15 @@ syscall_handler (struct intr_frame *f)
         mapid_t mapid = (mapid_t) read_frame (f, 1);
 
         syscall_munmap (mapid);
+        break;
+      }
+    case SYS_MKDIR:
+      {
+        const char *dir = (const char *) read_frame (f, 1);
+        check_usr_str (dir);
+
+        bool success = syscall_mkdir (dir);
+        write_frame (f, success);
         break;
       }
     default:
