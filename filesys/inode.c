@@ -128,13 +128,15 @@ static struct list open_inodes;
 static void free_disk_block (block_sector_t sector, size_t cache_idx);
 static bool add_new_block (struct inode_disk *i_data, block_sector_t sector);
 
+static off_t write_zeros (struct inode *inode, off_t size);
+
 /* Free the cache slot corresponding to CACHE_IDX and free
    the disk sector corresponding to SECTOR. */
 static void
 free_disk_block (block_sector_t sector, size_t cache_idx)
 {
   ASSERT (sector != SECTOR_NOT_PRESENT);
-
+  
   cache_free_slot (sector, cache_idx);
   free_map_release (sector, 1);
 }
@@ -300,7 +302,7 @@ inode_create (block_sector_t sector, off_t length)
   disk_inode = calloc (1, sizeof *disk_inode);
   if (disk_inode != NULL)
     {
-      disk_inode->length = 0;
+      disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
       for (size_t idx = 0; idx < INODE_SECTORS; idx++)
         disk_inode->sectors[idx] = SECTOR_NOT_PRESENT;
@@ -601,7 +603,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
             }
 
           /* Update length of file in inode_disk. */
-          inode_data->length += chunk;
+          if (offset > inode_data->length)
+            inode_data->length += chunk;
           rw_lock_exclusive_release (&i_ce->rw_lock);
 
           /* Advance. */
@@ -641,8 +644,74 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
               rw_lock_shared_to_exclusive (&i_ce->rw_lock);
               i_ce->dirty = true;
               inode_data->length += chunk;
-              rw_lock_exclusive_to_shared (&i_ce->rw_lock);
+              rw_lock_exclusive_release (&i_ce->rw_lock);
             }
+
+          /* Advance. */
+          size -= chunk;
+          offset += chunk;
+          bytes_written += chunk;
+        }
+    }
+
+  return bytes_written;
+}
+
+/* Fill the file with zeros. */
+static off_t
+write_zeros (struct inode *inode, off_t size)
+{
+  off_t bytes_written = 0;
+  off_t offset = 0;
+
+  if (inode->sector == 0)
+    return size;
+
+  while (size > 0)
+    {
+      /* Sector to write, starting byte offset within sector. */
+      block_sector_t sector_idx = byte_to_sector (inode, offset);
+
+      if (sector_idx == SECTOR_NOT_PRESENT)
+        {
+          /* Allocate a new disk sector. */
+          block_sector_t new_sector = 0;
+          if (!free_map_allocate (1, &new_sector))
+            return bytes_written;
+
+          /* Get new disk sector into the cache. */
+          size_t d_cache_idx = cache_get_block (new_sector, DATA);
+          struct cache_entry *d_ce = cache_idx_to_cache_entry (d_cache_idx);
+          void *d_cache_slot = cache_idx_to_cache_slot (d_cache_idx);
+          rw_lock_shared_to_exclusive (&d_ce->rw_lock);
+          d_ce->dirty = true;
+
+          /* Calculate number of bytes to write. */
+          int chunk = size < BLOCK_SECTOR_SIZE ? size : BLOCK_SECTOR_SIZE;
+
+          /* Write full or partial block of zeros to the new sector. */
+          memset (d_cache_slot, 0, chunk);
+          rw_lock_exclusive_release (&d_ce->rw_lock);
+
+          /* Get inode_disk block of file from cache. */
+          size_t i_cache_idx = cache_get_block (inode->sector, INODE);
+          struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
+          void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
+          struct inode_disk *inode_data = (struct inode_disk *) i_cache_slot;
+          rw_lock_shared_to_exclusive (&i_ce->rw_lock);
+          i_ce->dirty = true;
+
+          /* Write new sector number to inode_disk. */
+          if (!add_new_block (inode_data, new_sector))
+            {
+              rw_lock_exclusive_release (&i_ce->rw_lock);
+              free_map_release (new_sector, 1);
+              return bytes_written;
+            }
+
+          /* Update length of file in inode_disk. */
+          inode_data->length += chunk;
+          rw_lock_exclusive_release (&i_ce->rw_lock);
 
           /* Advance. */
           size -= chunk;

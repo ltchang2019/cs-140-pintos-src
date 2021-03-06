@@ -265,10 +265,8 @@ cache_find_block (block_sector_t sector)
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
     {
       struct cache_entry *ce = cache_metadata + idx;
-      rw_lock_shared_acquire (&ce->rw_lock);
       if (ce->sector_idx == sector)
         return ce->cache_idx;
-      rw_lock_shared_release (&ce->rw_lock);
     }
 
   return BLOCK_NOT_PRESENT;
@@ -293,6 +291,8 @@ cache_load (block_sector_t sector)
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
     {
+      ce = cache_metadata + cache_idx;
+      rw_lock_shared_acquire (&ce->rw_lock);
       lock_release (&eviction_lock);
       return cache_idx;
     }
