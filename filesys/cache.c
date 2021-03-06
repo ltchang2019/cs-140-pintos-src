@@ -276,7 +276,7 @@ cache_load (block_sector_t sector)
 {
   size_t cache_idx;
   struct cache_entry *ce;
-
+  
   lock_acquire (&eviction_lock);
 
   /* Block already in cache, so just return the cache_idx. */
