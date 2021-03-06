@@ -238,10 +238,14 @@ cache_find_block (block_sector_t sector)
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
     {
       struct cache_entry *ce = cache_metadata + idx;
-      rw_lock_shared_acquire (&ce->rw_lock);
+      
+      /* Already have eviction_lock so don't need to worry about
+         sector_idx changing under us. */
       if (ce->sector_idx == sector)
-        return ce->cache_idx;
-      rw_lock_shared_release (&ce->rw_lock);
+        {
+          rw_lock_shared_acquire (&ce->rw_lock);
+          return ce->cache_idx;
+        }
     }
 
   return BLOCK_NOT_PRESENT;
@@ -260,16 +264,19 @@ cache_load (block_sector_t sector)
   size_t cache_idx;
   struct cache_entry *ce;
 
+  /* Prevent eviction until we have found and acquired shared lock on 
+     cache slot. */
+  lock_acquire (&eviction_lock);
+
   /* Block already in cache, so just return the cache_idx. */
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
+    {
+      lock_release (&eviction_lock);
       return cache_idx;
+    }
 
-  /* Block not in cache, so find a free slot and load it in.
-     Acquire eviction_lock to ensure eviction is disabled
-     until the we have acquired shared lock on block returned by 
-     bitmap_scan_and_flip(). */
-  lock_acquire (&eviction_lock);
+  /* Block not in cache, so find a free slot and load it in. */
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
 
   /* A free cache slot is available, so obtain the rw_lock on the
