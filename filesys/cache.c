@@ -148,11 +148,12 @@ cache_free_slot (block_sector_t sector, size_t idx)
 
   /* Convert rw_lock on cache_entry from shared_acquire to
      exclusive_acquire to reset fields and free cache slot. */
-  rw_lock_shared_to_exclusive (&ce->rw_lock);
+  if (!current_thread_is_reader (&ce->rw_lock))
+  rw_lock_shared_acquire (&ce->rw_lock);
   ce->sector_idx = SECTOR_NOT_PRESENT;
   ce->dirty = false;
   bitmap_reset (cache_bitmap, cache_idx);
-  rw_lock_exclusive_release (&ce->rw_lock);
+  rw_lock_shared_release (&ce->rw_lock);
 }
 
 /* Flushes the cache by writing all dirty blocks back to disk.

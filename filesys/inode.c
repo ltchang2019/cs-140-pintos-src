@@ -429,7 +429,7 @@ inode_close (struct inode *inode)
                 }
               
               /* Free the indirect block. */
-              free_disk_block (i_sector, cache_idx);
+              free_disk_block (i_sector, CACHE_IDX_SEARCH);
             }
          
           /* Free data blocks pointed to by doubly indirect block. */
@@ -464,15 +464,15 @@ inode_close (struct inode *inode)
                     }
                   
                   /* Free the indirect block. */
-                  free_disk_block (i_sector, cache_idx);
+                  free_disk_block (i_sector, CACHE_IDX_SEARCH);
                 }
             
               /* Free the doubly indirect block. */
-              free_disk_block (di_sector, cache_idx);
+              free_disk_block (di_sector, CACHE_IDX_SEARCH);
             }
 
           /* Free the direct block (inode_disk). */
-          free_disk_block (inode->sector, cache_idx);
+          free_disk_block (inode->sector, CACHE_IDX_SEARCH);
         }
 
       free (inode); 
