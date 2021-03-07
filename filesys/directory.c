@@ -219,27 +219,34 @@ bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
-
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
-      dir->pos += sizeof e;
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;
-        } 
+        }
+
+      dir->pos += sizeof e;
     }
   return false;
 }
 
+/* */
 bool 
 dir_is_empty (struct dir *dir)
 {
-  char name[NAME_MAX + 1];
-  while (dir_readdir (dir, name))
+  ASSERT (dir->pos == 0);
+  
+  struct dir_entry e;
+  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
-      if (strcmp (name, ".") != 0 && strcmp (name, "..") != 0)
+      if (e.in_use
+          && strcmp (e.name, ".") != 0
+          && strcmp (e.name, "..") != 0)
         return false;
+
+      dir->pos += sizeof e;
     }
     
   return true;

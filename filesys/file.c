@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "filesys/directory.h"
 
 /* Opens a file for the given INODE, of which it takes ownership,
    and returns the new file.  Returns a null pointer if an
@@ -11,10 +12,11 @@ struct file *
 file_open (struct inode *inode) 
 {
   struct file *file = calloc (1, sizeof *file);
+  off_t pos = inode->type == DIR ? DIR_OFFSET : 0;
   if (inode != NULL && file != NULL)
     {
       file->inode = inode;
-      file->pos = 0;
+      file->pos = pos;
       file->deny_write = false;
       return file;
     }

@@ -60,6 +60,8 @@ get_start_dir (const char *path)
   return dir;
 }
 
+/* Extract base (path minus final token). 
+   Called in filesys_open() and filesys_remove(). */
 char *
 extract_base (const char *path)
 {
@@ -84,6 +86,8 @@ extract_base (const char *path)
   return base;
 }
 
+/* Extract file/directory name (final token).
+   Called in filesys_open() and filesys_remove(). */
 char *
 extract_name (const char *path)
 {
@@ -92,21 +96,4 @@ extract_name (const char *path)
     return (char *) path;
 
   return last_slash + 1;
-}
-
-/* Given path PATH, replaces last slash with \0 and
-   fills END with position of the directory name to
-   be added. If the path has no slashes, END is NULL
-   and PATH remains the same. */
-void
-extract_base_and_name (char **path, char **name)
-{
-  /* Get pointer to last slash. */
-  char *last_slash = strrchr (*path, '/');
-  if (last_slash == NULL)
-    return;
-  
-  /* Set slash to null terminator if slash not root slash. */
-  *last_slash = '\0';
-  *name = last_slash + 1;
 }
