@@ -21,7 +21,7 @@ struct inode_disk
     block_sector_t start;               /* First data sector. */
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-    enum inode_type type;               /* Directory or file? */
+    enum inode_type type;               /* Directory, file, or freemap? */
     uint32_t unused[124];               /* Not used. */
   };
 
@@ -30,10 +30,11 @@ struct inode
   {
     struct list_elem elem;              /* Element in inode list. */
     block_sector_t sector;              /* Sector number of disk location. */
+    enum inode_type type;               /* Directory, file, or freemap? */
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-    struct lock lock;                   /* Lock for sequential writes. */
+    struct lock lock;                   /* Lock for sequential operations. */
   };
 
 struct bitmap;

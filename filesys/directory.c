@@ -5,6 +5,7 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
@@ -43,13 +44,12 @@ dir_open_root (void)
 }
 
 /* Opens the currently working directory and returns a 
-   directory for it. Return true if successful, false on 
-   failure. */
+   directory for it. Reopens inode. Caller is responsible
+   for closing it. */
 struct dir *
 dir_open_cwd (void)
 {
-  // TODO
-  return NULL;
+  return dir_open (inode_reopen (thread_current ()->cwd_inode));
 }
 
 /* Opens and returns a new directory for the same inode as DIR.
@@ -230,4 +230,17 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
         } 
     }
   return false;
+}
+
+bool 
+dir_is_empty (struct dir *dir)
+{
+  char name[NAME_MAX + 1];
+  while (dir_readdir (dir, name))
+    {
+      if (strcmp (name, ".") != 0 && strcmp (name, "..") != 0)
+        return false;
+    }
+    
+  return true;
 }

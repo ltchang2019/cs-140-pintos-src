@@ -8,7 +8,7 @@
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
 #include "userprog/p_info.h"
-#include "filesys/directory.h"
+#include "filesys/inode.h"
 
 /* Thread ID. */
 typedef int tid_t;

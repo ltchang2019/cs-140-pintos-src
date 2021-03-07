@@ -136,6 +136,15 @@ inode_open (block_sector_t sector)
   inode->removed = false;
   lock_init (&inode->lock);
 
+  /* Set inode type to type on inode_disk. Must guarantee all inode_disk
+     blocks live on disk before opening corresponding in-memory inode. */
+  size_t cache_idx = cache_get_block (inode->sector, INODE);
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  rw_lock_shared_release (&ce->rw_lock);
+  inode->type = inode_data->type;
+
   return inode;
 }
 
@@ -198,7 +207,10 @@ void
 inode_remove (struct inode *inode) 
 {
   ASSERT (inode != NULL);
+  ASSERT (lock_held_by_current_thread (&inode->lock));
+  
   inode->removed = true;
+  lock_release (&inode->lock);
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.

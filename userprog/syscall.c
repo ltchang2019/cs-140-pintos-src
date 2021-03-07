@@ -20,7 +20,6 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/path.h"
-#include "filesys/cache.h"
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -43,6 +42,7 @@ static void syscall_close (int fd);
 static mapid_t syscall_mmap (int fd, void *addr);
 static void syscall_munmap (mapid_t mapid);
 static bool syscall_mkdir (const char *dir_path);
+static bool syscall_chdir (const char *dir_path);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
@@ -224,6 +224,15 @@ syscall_handler (struct intr_frame *f)
         write_frame (f, success);
         break;
       }
+    case SYS_CHDIR:
+      {
+        const char *dir = (const char *) read_frame (f, 1);
+        check_usr_str (dir);
+
+        bool success = syscall_chdir (dir);
+        write_frame (f, success);
+        break;
+      }
     default:
       break;
   }
@@ -381,7 +390,7 @@ syscall_open (const char *file_name)
   lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
-  
+
   /* Allocate new fd_entry struct and add to fd_list of process. */
   struct thread *t = thread_current ();
   struct fd_entry *fd_entry = malloc (sizeof (struct fd_entry));
@@ -480,6 +489,8 @@ syscall_write (int fd, const void *buf, unsigned size)
   struct file *open_file = fd_to_file (fd);
   if (open_file == NULL)
     return 0;
+  if (open_file->inode->type == DIR)
+    return -1;
 
   lock_acquire (&filesys_lock);
 
@@ -575,5 +586,35 @@ syscall_munmap (mapid_t mapid)
 static bool
 syscall_mkdir (const char *dir_path)
 {
-  return filesys_create (dir_path, 16 * sizeof (struct dir_entry), DIR);
+  // printf ("MKDIR CALLED\n");
+  bool success = filesys_create (dir_path, 16 * sizeof (struct dir_entry), DIR);
+  // printf ("MKDIR SUCCEEDED: %d\n", success);
+  return success;
+}
+
+/* Changes thread's current working directory to that of
+   the provided DIR_PATH if the path's inode exists. Returns 
+   false, if it doesn't exist or if the directory has been
+   removed. */
+
+static bool
+syscall_chdir (const char *dir_path)
+{
+  struct inode *inode = path_to_inode ((char *) dir_path);
+
+  /* Directory doesn't exist. */
+  if (inode == NULL)
+    return false;
+
+  lock_acquire (&inode->lock);
+  if (inode->removed)
+    {
+      lock_release (&inode->lock);
+      return false;
+    }
+
+  /* Inode already opened above. No reopen needed. */
+  thread_current ()->cwd_inode = inode;
+  lock_release (&inode->lock);
+  return true;
 }

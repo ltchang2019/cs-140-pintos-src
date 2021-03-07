@@ -1,3 +1,6 @@
+#include <debug.h>
+#include <stdio.h>
+#include "threads/malloc.h"
 #include "filesys/path.h"
 #include "filesys/filesys.h"
 
@@ -5,17 +8,22 @@
    path. Converts string PATH to an open inode, which the caller 
    is responsible for closing. */
 struct inode * 
-path_to_inode (char *path)
-{
+path_to_inode (const char *path)
+{    
+  /* Make copy of path. */
+  char *path_copy = malloc (strlen (path));
+  strlcpy (path_copy, path, strlen (path) + 1);
+
+  /* If entire path is "/", return root inode. */
+  if (path_copy[0] == '/' && strlen (path_copy) == 1)
+    return inode_open (ROOT_DIR_SECTOR);
+
   char *token, *ptr;
+  struct dir *dir = get_start_dir (path_copy);
 
-  struct dir *dir = get_start_dir (path);
-
-  /* Append trailing slash to smooth out strtok_r. */
-  strlcat (path, "/", strlen (path) + 1);
-
+  /* Traverse path. */
   struct inode *inode = NULL;
-  for (token = strtok_r (path, "/", &ptr); token != NULL; 
+  for (token = strtok_r (path_copy, "/", &ptr); token != NULL; 
        token = strtok_r (NULL, "/", &ptr))
     {
       const struct dir *const_dir = (const struct dir *) dir;
@@ -41,15 +49,49 @@ path_to_inode (char *path)
    If first char isn't a slash, we use our cwd as starting point
    for conversion. */
 struct dir *
-get_start_dir (char *path)
+get_start_dir (const char *path)
 {
   struct dir *dir;
   if (path[0] == '/')
-      dir = dir_open_root ();
+    dir = dir_open_root ();
   else
-      dir = dir_open_cwd ();
+    dir = dir_open_cwd ();
 
   return dir;
+}
+
+char *
+extract_base (const char *path)
+{
+  char *last_slash = strrchr (path, '/');
+  if (last_slash == NULL)
+    return NULL;
+  
+  intptr_t base_len = (intptr_t) last_slash - (intptr_t) path;
+  char *base = NULL;
+
+  /* If last slash isn't first slash, return base string. 
+     Else, just return "/" as base. */
+  if (base_len != 0)
+    {
+      base = malloc (sizeof (last_slash - path + 1));
+      strlcpy (base, path, base_len + 1);
+      base[base_len + 1] = '\0';
+    }
+  else
+    base = "/";
+  
+  return base;
+}
+
+char *
+extract_name (const char *path)
+{
+  char *last_slash = strrchr (path, '/');
+  if (last_slash == NULL)
+    return (char *) path;
+
+  return last_slash + 1;
 }
 
 /* Given path PATH, replaces last slash with \0 and
@@ -64,8 +106,7 @@ extract_base_and_name (char **path, char **name)
   if (last_slash == NULL)
     return;
   
-  /* Set slash to null terminator and set END to directory 
-     name (last token). */
+  /* Set slash to null terminator if slash not root slash. */
   *last_slash = '\0';
   *name = last_slash + 1;
 }
