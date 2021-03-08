@@ -45,6 +45,7 @@ static bool syscall_mkdir (const char *dir_path);
 static bool syscall_chdir (const char *dir_path);
 static bool syscall_readdir (int fd, char *name);
 static int syscall_inumber (int fd);
+static bool syscall_isdir (int fd);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
@@ -243,6 +244,14 @@ syscall_handler (struct intr_frame *f)
 
         bool success = syscall_readdir (fd, dir);
         write_frame (f, success);
+        break;
+      }
+    case SYS_ISDIR:
+      {
+        int fd = (int) read_frame (f, 1);
+
+        bool is_dir = syscall_isdir (fd);
+        write_frame (f, is_dir);
         break;
       }
     case SYS_INUMBER:
@@ -663,7 +672,18 @@ syscall_readdir (int fd, char *name)
   return success;
 }
 
-
+/* Returns whether or not file associated with fd
+   is a directory. */
+static bool 
+syscall_isdir (int fd)
+{
+  /* Reopen file to avoid inode being freed during call. */
+  struct file *file = fd_to_file (fd);
+  if (file == NULL)
+    return -1;
+  
+  return file->inode->type == DIR;
+}
 
 /* Returns sector number of inode associated with
    FD. Returns -1 if no open file/directory associated
@@ -672,11 +692,9 @@ static int
 syscall_inumber (int fd)
 {
   /* Reopen file to avoid inode being freed during call. */
-  struct file *file = file_reopen (fd_to_file (fd));
+  struct file *file = fd_to_file (fd);
   if (file == NULL)
     return -1;
-  
-  int inumber = file->inode->sector;
-  file_close (file);
-  return inumber;
+    
+  return file->inode->sector;;
 }
