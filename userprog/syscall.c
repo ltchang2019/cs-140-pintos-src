@@ -8,8 +8,6 @@
 #include "userprog/process.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
-#include "filesys/file.h"
-#include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
@@ -19,6 +17,9 @@
 #include "vm/frame.h"
 #include "vm/mmap.h"
 #include "vm/page.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "filesys/path.h"
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -40,6 +41,10 @@ static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
 static mapid_t syscall_mmap (int fd, void *addr);
 static void syscall_munmap (mapid_t mapid);
+static bool syscall_mkdir (const char *dir_path);
+static bool syscall_chdir (const char *dir_path);
+static bool syscall_readdir (int fd, char *name);
+static int syscall_inumber (int fd);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
@@ -212,6 +217,42 @@ syscall_handler (struct intr_frame *f)
         syscall_munmap (mapid);
         break;
       }
+    case SYS_MKDIR:
+      {
+        const char *dir = (const char *) read_frame (f, 1);
+        check_usr_str (dir);
+
+        bool success = syscall_mkdir (dir);
+        write_frame (f, success);
+        break;
+      }
+    case SYS_CHDIR:
+      {
+        const char *dir = (const char *) read_frame (f, 1);
+        check_usr_str (dir);
+
+        bool success = syscall_chdir (dir);
+        write_frame (f, success);
+        break;
+      }
+    case SYS_READDIR:
+      {
+        int fd = (int) read_frame (f, 1);
+        char *dir = (char *) read_frame (f, 2);
+        check_usr_str (dir);
+
+        bool success = syscall_readdir (fd, dir);
+        write_frame (f, success);
+        break;
+      }
+    case SYS_INUMBER:
+      {
+        int fd = (int) read_frame (f, 1);
+
+        int inumber = syscall_inumber (fd);
+        write_frame (f, inumber);
+        break;
+      }
     default:
       break;
   }
@@ -328,7 +369,7 @@ syscall_create (const char *file_name, unsigned initial_size)
   lock_acquire (&filesys_lock);
 
   pin_frames (file_name, len);
-  bool create_succeeded = filesys_create (file_name, initial_size);
+  bool create_succeeded = filesys_create (file_name, initial_size, FILE);
   unpin_frames (file_name, len);
 
   lock_release (&filesys_lock);
@@ -369,7 +410,7 @@ syscall_open (const char *file_name)
   lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
-  
+
   /* Allocate new fd_entry struct and add to fd_list of process. */
   struct thread *t = thread_current ();
   struct fd_entry *fd_entry = malloc (sizeof (struct fd_entry));
@@ -467,6 +508,8 @@ syscall_write (int fd, const void *buf, unsigned size)
   struct file *open_file = fd_to_file (fd);
   if (open_file == NULL)
     return 0;
+  if (open_file->inode->type == DIR)
+    return -1;
 
   lock_acquire (&filesys_lock);
 
@@ -555,4 +598,84 @@ static void
 syscall_munmap (mapid_t mapid)
 {
   munmap (mapid);
+}
+
+/* Creates a new directory given path DIR_PATH. Returns false if
+   directory creation failed for any reason. */
+static bool
+syscall_mkdir (const char *dir_path)
+{
+  return filesys_create (dir_path, 16 * sizeof (struct dir_entry), DIR);
+}
+
+/* Changes thread's current working directory to that of
+   the provided DIR_PATH if the path's inode exists. Returns 
+   false, if it doesn't exist or if the directory has been
+   removed. */
+static bool
+syscall_chdir (const char *dir_path)
+{
+  struct inode *inode = path_to_inode ((char *) dir_path);
+  if (inode == NULL)
+    return false;
+
+  lock_acquire (&inode->lock);
+
+  /* Fail call if inode removed. */
+  if (inode->removed)
+    {
+      lock_release (&inode->lock);
+      return false;
+    }
+
+  /* Inode already opened above. No reopen needed. */
+  thread_current ()->cwd_inode = inode;
+  lock_release (&inode->lock);
+  return true;
+}
+
+/* Reads name of next dir_entry in directory associated with FD 
+   into NAME. Returns true if dir_entry was found and false if 
+   otherwise. Returns false if fd isn't associated with open 
+   directory. */
+static bool 
+syscall_readdir (int fd, char *name)
+{
+  /* Reopen file to avoid inode being freed during call. */
+  struct file *open_file = file_reopen (fd_to_file (fd));
+  if (open_file == NULL)
+    return false;
+  if (open_file->inode->type != DIR)
+    return false;
+  
+  /* Ensure correct dir_entry offset. */
+  ASSERT (open_file->pos % sizeof (struct dir_entry) == 0);
+
+  struct dir *dir = malloc (sizeof (struct dir));
+  dir->pos = open_file->pos;
+  dir->inode = open_file->inode;
+  
+  bool success = dir_readdir (dir, name);  
+  file_close (open_file);
+  free (dir);
+
+  return success;
+}
+
+
+
+/* Returns sector number of inode associated with
+   FD. Returns -1 if no open file/directory associated
+   with FD. */
+static int 
+syscall_inumber (int fd)
+{
+  /* Reopen file to avoid inode being freed during call. */
+  struct file *file = file_reopen (fd_to_file (fd));
+  if (file == NULL)
+    return -1;
+  
+  int inumber = file->inode->sector;
+  file_close (file);
+  return inumber;
 }

@@ -8,6 +8,7 @@
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
 #include "userprog/p_info.h"
+#include "filesys/inode.h"
 
 /* Thread ID. */
 typedef int tid_t;
@@ -130,9 +131,10 @@ struct thread
     struct list mmap_list;            /* List of mmap entries. */
 #endif
 
-// #ifdef FILESYS
+#ifdef FILESYS
    struct list_elem rw_elem;
-// #endif
+   struct inode *cwd_inode;
+#endif
 
     /* Owned by thread.c. */
     unsigned magic;                   /* Detects stack overflow. */

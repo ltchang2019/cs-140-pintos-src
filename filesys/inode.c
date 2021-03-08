@@ -1,5 +1,4 @@
 #include "filesys/inode.h"
-#include <list.h>
 #include <debug.h>
 #include <round.h>
 #include <stdio.h>
@@ -12,15 +11,6 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
-/* On-disk inode.
-   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
-struct inode_disk
-  {
-    off_t length;                           /* File size in bytes. */
-    unsigned magic;                         /* Magic number. */
-    block_sector_t sectors[INODE_SECTORS];  /* Sector entries. */
-  };
-
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
 static inline size_t
@@ -28,16 +18,6 @@ bytes_to_sectors (off_t size)
 {
   return DIV_ROUND_UP (size, BLOCK_SECTOR_SIZE);
 }
-
-/* In-memory inode. */
-struct inode 
-  {
-    struct list_elem elem;              /* Element in inode list. */
-    block_sector_t sector;              /* Sector number of disk location. */
-    int open_cnt;                       /* Number of openers. */
-    bool removed;                       /* True if deleted, false otherwise. */
-    int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-  };
 
 /* Returns the disk sector that contains byte offset POS
    within INODE. Returns SECTOR_NOT_PRESENT if INODE does
@@ -290,7 +270,7 @@ inode_init (void)
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool
-inode_create (block_sector_t sector, off_t length)
+inode_create (block_sector_t sector, off_t length, enum inode_type type)
 {
   struct inode_disk *disk_inode = NULL;
   bool success = false;
@@ -298,16 +278,20 @@ inode_create (block_sector_t sector, off_t length)
   ASSERT (length >= 0);
   ASSERT (sizeof *disk_inode == BLOCK_SECTOR_SIZE);
 
-  disk_inode = calloc (1, sizeof *disk_inode);
+  // TODO: make inode_create use buffer cache?
+  disk_inode = calloc (1, sizeof *disk_inode); 
   if (disk_inode != NULL)
     {
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
+      disk_inode->type = type;
+      
       for (size_t idx = 0; idx < INODE_SECTORS; idx++)
         disk_inode->sectors[idx] = SECTOR_NOT_PRESENT;
 
       /* Put new inode_disk on disk. */
       block_write (fs_device, sector, disk_inode);
+
       free (disk_inode);
       success = true;
     }
@@ -347,6 +331,16 @@ inode_open (block_sector_t sector)
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
+  lock_init (&inode->lock);
+
+  /* Set inode type to type on inode_disk. Must guarantee all inode_disk
+     blocks live on disk before opening corresponding in-memory inode. */
+  size_t cache_idx = cache_get_block (inode->sector, INODE);
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  rw_lock_shared_release (&ce->rw_lock);
+  inode->type = inode_data->type;
 
   return inode;
 }
@@ -470,7 +464,10 @@ void
 inode_remove (struct inode *inode) 
 {
   ASSERT (inode != NULL);
+  ASSERT (lock_held_by_current_thread (&inode->lock));
+  
   inode->removed = true;
+  lock_release (&inode->lock);
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at
