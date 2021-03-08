@@ -172,7 +172,7 @@ filesys_remove (const char *path)
           return false;
         }
     }
-  
+
   /* If name == NULL, no slashes so use cwd. Else, open last 
      subdirectory of base. */
   struct inode *parent_inode;

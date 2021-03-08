@@ -25,7 +25,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 0;
+      dir->pos = DIR_OFFSET;
       return dir;
     }
   else
@@ -138,7 +138,7 @@ dir_lookup (const struct dir *dir, const char *name,
    error occurs. */
 bool
 dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
-{
+{  
   struct dir_entry e;
   off_t ofs;
   bool success = false;
@@ -161,8 +161,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
-  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
-       ofs += sizeof e) 
+  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e; ofs += sizeof e) 
     if (!e.in_use)
       break;
 
@@ -222,13 +221,12 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   struct dir_entry e;
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
+      dir->pos += sizeof e;
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;
         }
-
-      dir->pos += sizeof e;
     }
   return false;
 }
@@ -237,7 +235,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 bool 
 dir_is_empty (struct dir *dir)
 {
-  ASSERT (dir->pos == 0);
+  ASSERT (dir->pos == DIR_OFFSET);
   
   struct dir_entry e;
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 

@@ -628,9 +628,11 @@ syscall_chdir (const char *dir_path)
       return false;
     }
 
-  /* Inode already opened above. No reopen needed. */
+  /* Close current cwd inode and set to new one. */
+  inode_close (thread_current ()->cwd_inode);
   thread_current ()->cwd_inode = inode;
   lock_release (&inode->lock);
+  
   return true;
 }
 
@@ -641,8 +643,7 @@ syscall_chdir (const char *dir_path)
 static bool 
 syscall_readdir (int fd, char *name)
 {
-  /* Reopen file to avoid inode being freed during call. */
-  struct file *open_file = file_reopen (fd_to_file (fd));
+  struct file *open_file = fd_to_file (fd);
   if (open_file == NULL)
     return false;
   if (open_file->inode->type != DIR)
@@ -655,10 +656,10 @@ syscall_readdir (int fd, char *name)
   dir->pos = open_file->pos;
   dir->inode = open_file->inode;
   
-  bool success = dir_readdir (dir, name);  
-  file_close (open_file);
-  free (dir);
+  bool success = dir_readdir (dir, name);
+  open_file->pos += sizeof (struct dir_entry);
 
+  free (dir);
   return success;
 }
 

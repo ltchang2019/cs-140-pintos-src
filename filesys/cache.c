@@ -1,6 +1,7 @@
 #include "filesys/cache.h"
 #include <bitmap.h>
 #include "filesys/filesys.h"
+#include "filesys/free-map.h"
 #include "devices/timer.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
@@ -370,5 +371,6 @@ cache_periodic_flush (void *aux UNUSED)
     {
       timer_msleep (10 * 1000);
       cache_flush ();
+      free_map_flush ();
     }
 }
