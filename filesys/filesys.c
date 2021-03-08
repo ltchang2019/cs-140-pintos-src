@@ -8,6 +8,7 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "filesys/path.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 
 /* Partition that contains the file system. */
@@ -32,6 +33,15 @@ filesys_init (bool format)
     do_format ();
 
   free_map_open ();
+  
+  /* Add "." and ".." entries to root directory. */
+  if (format)
+    {
+      struct dir *dir = dir_open (inode_open (ROOT_DIR_SECTOR));
+      dir_add (dir, ".", ROOT_DIR_SECTOR);
+      dir_add (dir, "..", ROOT_DIR_SECTOR);
+      dir_close (dir);
+    }
 
   thread_current ()->cwd_inode = inode_open (ROOT_DIR_SECTOR);
 }
@@ -71,14 +81,14 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
   /* Acquire lock on parent directory's in-memory inode and 
      hold until new entry added or we see inode was removed. */
   lock_acquire (&parent_inode->lock);
-  
+
   /* If directory already removed return false. */
   if (parent_inode->removed)
     {
       lock_release (&parent_inode->lock);
       return false;
     }
-
+  
   /* Create new inode_disk and add dir_entry. */
   block_sector_t new_inode_sector = 0;
   struct dir *parent_dir = dir_open (parent_inode);
@@ -101,7 +111,7 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
      block to free. */
   if (!success && new_inode_sector != 0) 
     free_map_release (new_inode_sector, 1);
-
+  
   lock_release (&parent_inode->lock);
   dir_close (parent_dir);
 
@@ -115,10 +125,31 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
 struct file *
 filesys_open (const char *path)
 {
-  if (strlen (path) == 0)
+  // HACK
+  // printf ("PATH %s\n", path);
+  char *hack;
+  hack = (char *) path;
+  if (hack[0] == '/' && hack[1] == '/')
+    hack = ((char *) path) + 1;
+
+  // SUPER STRING HACK
+  char *super_hack = malloc (strlen (path) + 1);
+  int i = 0;
+  for (char *ptr = (char *) path; *ptr != 0; ptr++)
+    {
+      super_hack[i] = *ptr;
+      if (*ptr == '/' && (*(ptr + 1)) == '/')
+        {
+          ptr++;
+        }
+      i++;
+    }
+  super_hack[i] = 0;
+
+  if (strlen (hack) == 0)
     return NULL;
 
-  struct inode *inode = path_to_inode ((char *) path);
+  struct inode *inode = path_to_inode ((char *) hack);
   if (inode == NULL)
     return NULL;
   

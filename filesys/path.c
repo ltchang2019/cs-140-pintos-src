@@ -11,7 +11,10 @@ struct inode *
 path_to_inode (const char *path)
 {    
   /* Make copy of path. */
-  char *path_copy = malloc (strlen (path));
+  char *path_copy = malloc (strlen (path) + 1);
+  if (path_copy == NULL)
+    PANIC ("path_to_inode: memory allocation failed for path_copy");
+    
   strlcpy (path_copy, path, strlen (path) + 1);
 
   /* If entire path is "/", return root inode. */

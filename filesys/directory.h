@@ -11,7 +11,7 @@
    After directories are implemented, this maximum length may be
    retained, but much longer full path names must be allowed. */
 #define NAME_MAX 26
-#define DIR_OFFSET sizeof (struct dir_entry) * 2
+#define DIR_OFFSET (sizeof (struct dir_entry) * 2)
 
 /* A directory. */
 struct dir 
