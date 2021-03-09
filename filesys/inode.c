@@ -12,6 +12,8 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+static struct lock open_inodes_lock;
+
 static block_sector_t allocate_zeroed_block_for_file (struct inode *inode, off_t offset);
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -244,6 +246,7 @@ add_new_block (struct inode_disk *i_data, block_sector_t sector, off_t ofs)
 void
 inode_init (void) 
 {
+  lock_init (&open_inodes_lock);
   list_init (&open_inodes);
 }
 
@@ -308,7 +311,6 @@ inode_open (block_sector_t sector)
     return NULL;
 
   /* Initialize. */
-  list_push_front (&open_inodes, &inode->elem);
   inode->sector = sector;
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
@@ -321,6 +323,10 @@ inode_open (block_sector_t sector)
   struct inode_disk *inode_data = (struct inode_disk *) inode_block_addr;
   inode->type = inode_data->type;
   cache_shared_release (inode_block_addr);
+
+  lock_acquire (&open_inodes_lock);
+  list_push_front (&open_inodes, &inode->elem);
+  lock_release (&open_inodes_lock);
 
   return inode;
 }
@@ -355,7 +361,9 @@ inode_close (struct inode *inode)
   if (--inode->open_cnt == 0)
     {
       /* Remove from inode list and release lock. */
+      lock_acquire (&open_inodes_lock);
       list_remove (&inode->elem);
+      lock_release (&open_inodes_lock);
  
       /* Deallocate blocks if removed. */
       if (inode->removed) 
