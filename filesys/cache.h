@@ -39,14 +39,16 @@ struct sector_elem
     struct list_elem elem;      /* List element. */
   };
 
-void *cache_idx_to_cache_slot (size_t cache_idx);
+void *cache_idx_to_cache_block_addr (size_t cache_idx);
 struct inode_disk *cache_idx_to_inode_disk (size_t cache_idx);
 struct indir_block *cache_idx_to_indir_block (size_t cache_idx);
 struct cache_entry *cache_idx_to_cache_entry (size_t cache_idx);
 
 void cache_convert_to_exclusive_and_set_dirty (size_t cache_idx);
 void *cache_get_block_exclusive (block_sector_t sector, enum inode_type type);
+void *cache_get_block_shared (block_sector_t sector, enum inode_type type);
 void cache_exclusive_release (void *block_addr);
+void cache_shared_release (void *block_addr);
 
 void cache_init (void);
 size_t cache_get_block (block_sector_t sector, enum sector_type type);

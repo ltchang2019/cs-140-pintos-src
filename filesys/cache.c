@@ -38,7 +38,7 @@ static size_t cache_load (block_sector_t sector);
 /* Translates CACHE_IDX into address of the corresponding
    cache slot in the cache. */
 void *
-cache_idx_to_cache_slot (size_t cache_idx)
+cache_idx_to_cache_block_addr (size_t cache_idx)
 {
   return cache + (cache_idx * BLOCK_SECTOR_SIZE);
 }
@@ -60,7 +60,14 @@ cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 
   /* Always going to set dirty when acquiring exclusive. */
   ce->dirty = true;
-  return cache_idx_to_cache_slot (cache_idx);
+  return cache_idx_to_cache_block_addr (cache_idx);
+}
+
+void *
+cache_get_block_shared (block_sector_t sector, enum inode_type type)
+{
+  size_t cache_idx = cache_get_block (sector, type);
+  return cache_idx_to_cache_block_addr (cache_idx);
 }
 
 void
@@ -70,6 +77,15 @@ cache_exclusive_release (void *block_addr)
   size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   rw_lock_exclusive_release (&ce->rw_lock);
+}
+
+void 
+cache_shared_release (void *block_addr)
+{
+  ASSERT ((block_addr - cache) % BLOCK_SECTOR_SIZE == 0);
+  size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  rw_lock_shared_release (&ce->rw_lock);
 }
 
 /* Initializes the buffer cache.
@@ -126,8 +142,8 @@ cache_init (void)
 struct inode_disk *
 cache_idx_to_inode_disk (size_t cache_idx)
 {
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  return (struct inode_disk *) cache_slot;
+  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+  return (struct inode_disk *) cache_block_addr;
 }
 
 /* Translates CACHE_IDX into indir_block struct.
@@ -136,8 +152,8 @@ cache_idx_to_inode_disk (size_t cache_idx)
 struct indir_block *
 cache_idx_to_indir_block (size_t cache_idx)
 {
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  return (struct indir_block *) cache_slot;
+  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+  return (struct indir_block *) cache_block_addr;
 }
 
 /* Get a block with sector number SECTOR into memory by
@@ -196,8 +212,8 @@ cache_flush (void)
       rw_lock_shared_acquire (&ce->rw_lock);
       if (ce->sector_idx != SECTOR_NOT_PRESENT && ce->dirty)
         {
-          void *cache_slot = cache_idx_to_cache_slot (idx);
-          block_write (fs_device, ce->sector_idx, cache_slot);
+          void *cache_block_addr = cache_idx_to_cache_block_addr (idx);
+          block_write (fs_device, ce->sector_idx, cache_block_addr);
         }
       rw_lock_shared_release (&ce->rw_lock);
     }
@@ -267,8 +283,8 @@ cache_evict_block (void)
   /* Write dirty block back to disk. */
   if (ce->dirty)
     {
-      void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-      block_write (fs_device, ce->sector_idx, cache_slot);
+      void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+      block_write (fs_device, ce->sector_idx, cache_block_addr);
     }
   
   /* Clear appropriate fields in cache_entry. */
@@ -341,8 +357,8 @@ cache_load (block_sector_t sector)
       rw_lock_shared_acquire (&ce->rw_lock);
       lock_release (&eviction_lock);
 
-      void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-      block_read (fs_device, sector, cache_slot);
+      void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+      block_read (fs_device, sector, cache_block_addr);
       return cache_idx;
     }
 
@@ -354,8 +370,8 @@ cache_load (block_sector_t sector)
   cache_idx = cache_evict_block ();
   lock_release (&eviction_lock);
 
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  block_read (fs_device, sector, cache_slot);
+  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+  block_read (fs_device, sector, cache_block_addr);
   return cache_idx;
 }
 
