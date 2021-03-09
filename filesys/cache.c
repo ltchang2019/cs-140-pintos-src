@@ -51,17 +51,23 @@ cache_idx_to_cache_entry (size_t cache_idx)
   return cache_metadata + cache_idx;
 }
 
-void
-cache_convert_to_exclusive_and_set_dirty (size_t cache_idx)
+void *
+cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 {
+  size_t cache_idx = cache_get_block (sector, type);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   rw_lock_shared_to_exclusive (&ce->rw_lock);
+
+  /* Always going to set dirty when acquiring exclusive. */
   ce->dirty = true;
+  return cache_idx_to_cache_slot (cache_idx);
 }
 
 void
-cache_exclusive_release (size_t cache_idx)
+cache_exclusive_release (void *block_addr)
 {
+  ASSERT ((block_addr - cache) % BLOCK_SECTOR_SIZE == 0);
+  size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   rw_lock_exclusive_release (&ce->rw_lock);
 }
