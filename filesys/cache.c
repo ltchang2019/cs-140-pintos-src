@@ -51,6 +51,21 @@ cache_idx_to_cache_entry (size_t cache_idx)
   return cache_metadata + cache_idx;
 }
 
+void
+cache_convert_to_exclusive_and_set_dirty (size_t cache_idx)
+{
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  rw_lock_shared_to_exclusive (&ce->rw_lock);
+  ce->dirty = true;
+}
+
+void
+cache_exclusive_release (size_t cache_idx)
+{
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  rw_lock_exclusive_release (&ce->rw_lock);
+}
+
 /* Initializes the buffer cache.
 
    More specifically, allocates memory for cache, cache

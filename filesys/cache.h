@@ -43,6 +43,9 @@ struct inode_disk *cache_idx_to_inode_disk (size_t cache_idx);
 struct indir_block *cache_idx_to_indir_block (size_t cache_idx);
 struct cache_entry *cache_idx_to_cache_entry (size_t cache_idx);
 
+void cache_convert_to_exclusive_and_set_dirty (size_t cache_idx);
+void cache_exclusive_release (size_t cache_idx);
+
 void cache_init (void);
 size_t cache_get_block (block_sector_t sector, enum sector_type type);
 void cache_free_slot (block_sector_t sector);
