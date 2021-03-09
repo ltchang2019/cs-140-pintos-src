@@ -99,6 +99,26 @@ cache_init (void)
     PANIC ("cache_init: failed to spawn cache worker threads.");
 }
 
+/* Translates CACHE_IDX into inode_data struct.
+   Should only be called when CACHE_IDX's corresponding
+   block contains an inode_disk. */
+struct inode_disk *
+cache_idx_to_inode_disk (size_t cache_idx)
+{
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  return (struct inode_disk *) cache_slot;
+}
+
+/* Translates CACHE_IDX into indir_block struct.
+   Should only be called when CACHE_IDX's corresponding
+   block contains an indir_block. */
+struct indir_block *
+cache_idx_to_indir_block (size_t cache_idx)
+{
+  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
+  return (struct indir_block *) cache_slot;
+}
+
 /* Get a block with sector number SECTOR into memory by
    locating it in the cache or loading it from disk.
 

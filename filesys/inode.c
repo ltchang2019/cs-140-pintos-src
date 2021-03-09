@@ -34,8 +34,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
      cache, in order to read sectors array. */
   size_t cache_idx = cache_get_block (inode->sector, INODE);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  struct inode_disk *inode_data = cache_idx_to_inode_disk (cache_idx);
 
   if (pos_block_num < NUM_DIRECT)
     {
@@ -57,8 +56,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
 
       size_t i_cache_idx = cache_get_block (i_sector, DATA);
       struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
-      void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
-      struct indir_block *i_block = (struct indir_block *) i_cache_slot;
+      struct indir_block *i_block = cache_idx_to_indir_block (i_cache_idx);
 
       off_t indir_idx = pos_block_num - NUM_DIRECT;
       block_sector_t sector = i_block->sectors[indir_idx];
@@ -79,8 +77,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
 
       size_t di_cache_idx = cache_get_block (di_sector, DATA);
       struct cache_entry *di_ce = cache_idx_to_cache_entry (di_cache_idx);
-      void *di_cache_slot = cache_idx_to_cache_slot (di_cache_idx);
-      struct indir_block *di_block = (struct indir_block *) di_cache_slot;
+      struct indir_block *di_block = cache_idx_to_indir_block (di_cache_idx);
 
       /* Get correct indirect block in doubly indirect block. */
       off_t doubly_indir_idx = (pos_block_num - NUM_DIR_INDIR) / NUM_INDIRECT;
@@ -93,8 +90,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
 
       size_t i_cache_idx = cache_get_block (i_sector, DATA);
       struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
-      void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
-      struct indir_block *i_block = (struct indir_block *) i_cache_slot;
+      struct indir_block *i_block = cache_idx_to_indir_block (i_cache_idx);
 
       off_t indir_idx = (pos_block_num - NUM_DIR_INDIR) % NUM_INDIRECT;
       block_sector_t sector = i_block->sectors[indir_idx];
@@ -178,8 +174,7 @@ add_new_block (struct inode_disk *i_data, block_sector_t sector, off_t ofs)
       block_sector_t i_sector = i_data->sectors[INDIR];
       size_t i_idx = cache_get_block (i_sector, DATA);
       struct cache_entry *i_ce = cache_idx_to_cache_entry (i_idx);
-      void *i_slot = cache_idx_to_cache_slot (i_idx);
-      struct indir_block *i_block = (struct indir_block *) i_slot;
+      struct indir_block *i_block = cache_idx_to_indir_block (i_idx);
       rw_lock_shared_to_exclusive (&i_ce->rw_lock);
       i_ce->dirty = true;
 
@@ -208,8 +203,7 @@ add_new_block (struct inode_disk *i_data, block_sector_t sector, off_t ofs)
   block_sector_t di_sector = i_data->sectors[DOUBLE_INDIR];
   size_t di_idx = cache_get_block (di_sector, DATA);
   struct cache_entry *di_ce = cache_idx_to_cache_entry (di_idx);
-  void *di_slot = cache_idx_to_cache_slot (di_idx);
-  struct indir_block *di_block = (struct indir_block *) di_slot;
+  struct indir_block *di_block = cache_idx_to_indir_block (di_idx);
   rw_lock_shared_to_exclusive (&di_ce->rw_lock);
   di_ce->dirty = true;
 
@@ -243,8 +237,7 @@ add_new_block (struct inode_disk *i_data, block_sector_t sector, off_t ofs)
 
   size_t dii_idx = cache_get_block (dii_sector, DATA);
   struct cache_entry *dii_ce = cache_idx_to_cache_entry (dii_idx);
-  void *dii_slot = cache_idx_to_cache_slot (dii_idx);
-  struct indir_block *dii_block = (struct indir_block *) dii_slot;
+  struct indir_block *dii_block = cache_idx_to_indir_block (dii_idx);
   rw_lock_shared_to_exclusive (&dii_ce->rw_lock);
   dii_ce->dirty = true;
 
@@ -338,8 +331,7 @@ inode_open (block_sector_t sector)
      blocks live on disk before opening corresponding in-memory inode. */
   size_t cache_idx = cache_get_block (inode->sector, INODE);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  struct inode_disk *inode_data = cache_idx_to_inode_disk (cache_idx);
   rw_lock_shared_release (&ce->rw_lock);
   inode->type = inode_data->type;
 
@@ -383,8 +375,7 @@ inode_close (struct inode *inode)
         {
           /* Get inode_disk block from cache. */
           size_t cache_idx = cache_get_block (inode->sector, INODE);
-          void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-          struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+          struct inode_disk *inode_data = cache_idx_to_inode_disk (cache_idx);
 
           /* Free data blocks pointed to by direct block (inode_disk). */
           for (size_t idx = 0; idx < NUM_DIRECT; idx++)
@@ -400,8 +391,7 @@ inode_close (struct inode *inode)
               /* Get indirect block from cache. */
               block_sector_t i_sector = inode_data->sectors[INDIR];
               size_t cache_idx = cache_get_block (i_sector, DATA);
-              void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-              struct indir_block *i_block = (struct indir_block *) cache_slot;
+              struct indir_block *i_block = cache_idx_to_indir_block (cache_idx);
 
               for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
                 {
@@ -420,9 +410,7 @@ inode_close (struct inode *inode)
               /* Get doubly indirect block from cache. */
               block_sector_t di_sector = inode_data->sectors[DOUBLE_INDIR];
               size_t cache_idx = cache_get_block (di_sector, DATA);
-              void *slot = cache_idx_to_cache_slot (cache_idx);
-              struct indir_block *di_block = (struct indir_block *) slot;
-
+              struct indir_block *di_block = cache_idx_to_indir_block (cache_idx);
               /* Iterate through indirect blocks of doubly indirect block. */
               for (size_t d_idx = 0; d_idx < NUM_INDIRECT; d_idx++)
                 {
@@ -432,8 +420,7 @@ inode_close (struct inode *inode)
                   /* Get indirect block from cache. */
                   block_sector_t i_sector = di_block->sectors[d_idx];
                   size_t cache_idx = cache_get_block (i_sector, DATA);
-                  void *slot = cache_idx_to_cache_slot (cache_idx);
-                  struct indir_block *i_block = (struct indir_block *) slot;
+                  struct indir_block *i_block = cache_idx_to_indir_block (cache_idx);
 
                   /* Free data blocks pointed to by indirect block. */
                   for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
@@ -516,8 +503,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           /* Get inode_disk block of file from cache. */
           size_t i_cache_idx = cache_get_block (inode->sector, INODE);
           struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
-          void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
-          struct inode_disk *inode_data = (struct inode_disk *) i_cache_slot;
+          struct inode_disk *inode_data = cache_idx_to_inode_disk (i_cache_idx);
           rw_lock_shared_to_exclusive (&i_ce->rw_lock);
           i_ce->dirty = true;
 
@@ -631,8 +617,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           /* Get inode_disk block of file from cache. */
           size_t i_cache_idx = cache_get_block (inode->sector, INODE);
           struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
-          void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
-          struct inode_disk *inode_data = (struct inode_disk *) i_cache_slot;
+          struct inode_disk *inode_data = cache_idx_to_inode_disk (i_cache_idx);
           rw_lock_shared_to_exclusive (&i_ce->rw_lock);
           i_ce->dirty = true;
 
@@ -689,8 +674,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           /* Get inode_disk block of file from cache. */
           size_t i_cache_idx = cache_get_block (inode->sector, INODE);
           struct cache_entry *i_ce = cache_idx_to_cache_entry (i_cache_idx);
-          void *i_cache_slot = cache_idx_to_cache_slot (i_cache_idx);
-          struct inode_disk *inode_data = (struct inode_disk *) i_cache_slot;
+          struct inode_disk *inode_data = cache_idx_to_inode_disk (i_cache_idx);
           rw_lock_shared_to_exclusive (&i_ce->rw_lock);
           i_ce->dirty = true;
 
@@ -739,8 +723,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
             {
               size_t i_idx = cache_get_block (inode->sector, INODE);
               struct cache_entry *i_ce = cache_idx_to_cache_entry (i_idx);
-              void *i_slot = cache_idx_to_cache_slot (i_idx);
-              struct inode_disk *inode_data = (struct inode_disk *) i_slot;
+              struct inode_disk *inode_data = cache_idx_to_inode_disk (i_idx);
               rw_lock_shared_to_exclusive (&i_ce->rw_lock);
               i_ce->dirty = true;
               inode_data->length += chunk;
@@ -784,8 +767,7 @@ inode_length (const struct inode *inode)
   /* Get inode_disk from cache in order to read length field. */
   size_t cache_idx = cache_get_block (inode->sector, INODE);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
-  void *cache_slot = cache_idx_to_cache_slot (cache_idx);
-  struct inode_disk *inode_data = (struct inode_disk *) cache_slot;
+  struct inode_disk *inode_data = cache_idx_to_inode_disk (cache_idx);
 
   off_t length = inode_data->length;
   rw_lock_shared_release (&ce->rw_lock);
