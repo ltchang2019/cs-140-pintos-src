@@ -163,9 +163,9 @@ start_process (void *aux UNUSED)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  lock_acquire (&filesys_lock);
+  // lock_acquire (&filesys_lock);
   success = load (cmd_args, &if_.eip, &if_.esp);
-  lock_release (&filesys_lock);
+  // lock_release (&filesys_lock);
   palloc_free_page (cmd_args);
 
   /* If load was successful, set load_succeeded to true. */
@@ -234,10 +234,10 @@ process_exit (void)
   free_child_p_info_list ();
   spt_free_table (&t->spt);
 
-  if (!lock_held_by_current_thread (&filesys_lock))
-    lock_acquire (&filesys_lock);
+  // if (!lock_held_by_current_thread (&filesys_lock))
+    // lock_acquire (&filesys_lock);
   file_close (t->executable);
-  lock_release (&filesys_lock);
+  // lock_release (&filesys_lock);
   
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

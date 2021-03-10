@@ -219,6 +219,8 @@ filesys_remove (const char *path)
   bool success = parent_dir != NULL && dir_remove (parent_dir, name);
   lock_release (&parent_inode->lock);
   
+  inode_remove (to_remove_inode);
+  inode_close (to_remove_inode);
   dir_close (parent_dir); 
   return success;
 }
