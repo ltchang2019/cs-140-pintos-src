@@ -54,7 +54,7 @@ cache_idx_to_cache_entry (size_t cache_idx)
 void *
 cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 {
-  printf ("CACHE GET BLOCK EXCLUSIVE\n");
+  // printf ("CACHE GET BLOCK EXCLUSIVE\n");
   size_t cache_idx = cache_get_block (sector, type);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   rw_lock_shared_to_exclusive (&ce->rw_lock);
@@ -67,7 +67,7 @@ cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 void *
 cache_get_block_shared (block_sector_t sector, enum inode_type type)
 {
-  printf ("CACHE GET BLOCK SHARED\n");
+  // printf ("CACHE GET BLOCK SHARED\n");
   size_t cache_idx = cache_get_block (sector, type);
   return cache_idx_to_cache_block_addr (cache_idx);
 }
@@ -250,11 +250,11 @@ clock_find (void)
 
   while (true)
     {
-      printf ("CLOCK_FIND\n");
+      // printf ("CLOCK_FIND\n");
       if (!current_thread_is_reader (&clock_hand->rw_lock) &&
           rw_lock_shared_try_acquire (&clock_hand->rw_lock))
         {
-          printf ("GOT CLOCK_HAND SHARED\n");
+          // printf ("GOT CLOCK_HAND SHARED\n");
           if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
             {
               rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
@@ -343,7 +343,7 @@ cache_load (block_sector_t sector)
 {
   size_t cache_idx;
   struct cache_entry *ce;
-  printf ("WAITING ON EVICTION LOCK...\n");
+  // printf ("WAITING ON EVICTION LOCK...\n");
   lock_acquire (&eviction_lock);
 
   /* Block already in cache, so just return the cache_idx. */
@@ -352,7 +352,7 @@ cache_load (block_sector_t sector)
     {
       
       lock_release (&eviction_lock);
-      printf ("RELEASED EVICTION_LOCK after SUCCESSFUL GET\n");
+      // printf ("RELEASED EVICTION_LOCK after SUCCESSFUL GET\n");
       return cache_idx;
     }
 
@@ -364,7 +364,7 @@ cache_load (block_sector_t sector)
   if (cache_idx != BITMAP_ERROR)
     {
       ce = cache_metadata + cache_idx;
-      printf ("SHARED_ACQUIRING NEW ALLOCATED BLOCK\n");
+      // printf ("SHARED_ACQUIRING NEW ALLOCATED BLOCK\n");
       rw_lock_shared_acquire (&ce->rw_lock);
       lock_release (&eviction_lock);
 
@@ -378,7 +378,7 @@ cache_load (block_sector_t sector)
      eviction_lock since we will have shared lock on the
      returned cache slot, ensuring that the block will not
      be evicted by another process. */
-  printf ("EVICTING BLOCK\n");
+  // printf ("EVICTING BLOCK\n");
   cache_idx = cache_evict_block ();
   lock_release (&eviction_lock);
 

@@ -126,7 +126,7 @@ struct file *
 filesys_open (const char *path)
 {
   // HACK
-  // printf ("PATH %s\n", path);
+  // // printf ("PATH %s\n", path);
   char *hack;
   hack = (char *) path;
   if (hack[0] == '/' && hack[1] == '/')
@@ -181,7 +181,9 @@ filesys_remove (const char *path)
   
   /* Acquire lock on inode and release once inode->removed
      has been set to true in dir_remove(). */
+  // printf ("ACQUIRING CHILD LOCK\n");
   lock_acquire (&to_remove_inode->lock);
+  // printf ("ACQUIRIED CHILD LOCK\n");
 
   if (to_remove_inode->type == DIR)
     {
@@ -206,22 +208,26 @@ filesys_remove (const char *path)
 
   /* If name == NULL, no slashes so use cwd. Else, open last 
      subdirectory of base. */
+  // printf ("OPENING PARENT INODE LOCK\n");
   struct inode *parent_inode;
   if (base == NULL)
     parent_inode = inode_reopen (thread_current ()->cwd_inode);
   else
     parent_inode = path_to_inode (base);
+  // printf ("OPENED PARENT INODE LOCK\n");
     
   /* Note that parent inode could not have been removed since
      we already know there is a child directory. */
   lock_acquire (&parent_inode->lock);
   struct dir *parent_dir = dir_open (parent_inode);
+  // printf ("REMOVING DIR FROM PARENT\n");
   bool success = parent_dir != NULL && dir_remove (parent_dir, name);
   lock_release (&parent_inode->lock);
   
-  inode_remove (to_remove_inode);
+  // printf ("REMOVING CHILD INODE\n");
   inode_close (to_remove_inode);
   dir_close (parent_dir); 
+  // printf ("INODE_REMOVE FINISHED___\n");
   return success;
 }
 
@@ -229,10 +235,10 @@ filesys_remove (const char *path)
 static void
 do_format (void)
 {
-  printf ("Formatting file system...");
+  // printf ("Formatting file system...");
   free_map_create ();
   if (!dir_create (ROOT_DIR_SECTOR, 16))
     PANIC ("root directory creation failed");
   free_map_close ();
-  printf ("done.\n");
+  // printf ("done.\n");
 }
