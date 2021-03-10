@@ -501,11 +501,32 @@ void
 rw_lock_shared_acquire (struct rw_lock *rw_lock)
 {  
   lock_acquire (&rw_lock->lock);
-  while (!list_empty (&rw_lock->waiting_writers) || rw_lock->writer != NULL)
+  while (rw_lock->writer != NULL)
     cond_wait (&rw_lock->cond, &rw_lock->lock);
 
   list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
   lock_release (&rw_lock->lock);
+}
+
+bool 
+rw_lock_shared_try_acquire (struct rw_lock *rw_lock)
+{
+  lock_acquire (&rw_lock->lock);
+  if (rw_lock->writer != NULL)
+    {
+      lock_release (&rw_lock->lock);
+      return false;
+    }
+  
+  while (rw_lock->writer != NULL)
+    {
+      printf ("WAITING ON WRITER\n");
+      cond_wait (&rw_lock->cond, &rw_lock->lock);
+    }
+
+  list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
+  lock_release (&rw_lock->lock);
+  return true;
 }
 
 /* Releases RW_LOCK as a reader. The reader is removed from the 

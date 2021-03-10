@@ -248,18 +248,23 @@ clock_find (void)
 
   while (true)
     {
-      rw_lock_shared_acquire (&clock_hand->rw_lock);
-      if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
+      // printf ("CLOCK_FIND\n");
+      if (!current_thread_is_reader (&clock_hand->rw_lock) &&
+          rw_lock_shared_try_acquire (&clock_hand->rw_lock))
         {
-          rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
-          size_t cache_idx = clock_hand->cache_idx;
-          clock_advance ();
-          clock_timeout = 0;
-          
-          return cache_idx;
+          // printf ("GOT CLOCK_HAND SHARED\n");
+          if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
+            {
+              rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
+              size_t cache_idx = clock_hand->cache_idx;
+              clock_advance ();
+              clock_timeout = 0;
+              
+              return cache_idx;
+            }
+          rw_lock_shared_release (&clock_hand->rw_lock);
         }
-      rw_lock_shared_release (&clock_hand->rw_lock);
-
+        
       /* Advance clock hand. */
       clock_advance ();
       clock_timeout++;
@@ -336,12 +341,14 @@ cache_load (block_sector_t sector)
 {
   size_t cache_idx;
   struct cache_entry *ce;
+  // printf ("WAITING ON EVICTION LOCK...\n");
   lock_acquire (&eviction_lock);
 
   /* Block already in cache, so just return the cache_idx. */
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
     {
+      // printf ("RELEASING EVICTION_LOCK after SUCCESSFUL GET\n");
       lock_release (&eviction_lock);
       return cache_idx;
     }
@@ -354,6 +361,7 @@ cache_load (block_sector_t sector)
   if (cache_idx != BITMAP_ERROR)
     {
       ce = cache_metadata + cache_idx;
+      // printf ("SHARED_ACQUIRING NEW ALLOCATED BLOCK\n");
       rw_lock_shared_acquire (&ce->rw_lock);
       lock_release (&eviction_lock);
 
@@ -367,6 +375,7 @@ cache_load (block_sector_t sector)
      eviction_lock since we will have shared lock on the
      returned cache slot, ensuring that the block will not
      be evicted by another process. */
+  // printf ("EVICTING BLOCK\n");
   cache_idx = cache_evict_block ();
   lock_release (&eviction_lock);
 

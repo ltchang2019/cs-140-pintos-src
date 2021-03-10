@@ -375,13 +375,10 @@ syscall_create (const char *file_name, unsigned initial_size)
 {
   int len = strlen (file_name);
 
-  lock_acquire (&filesys_lock);
-
   pin_frames (file_name, len);
   bool create_succeeded = filesys_create (file_name, initial_size, FILE);
   unpin_frames (file_name, len);
 
-  lock_release (&filesys_lock);
   return create_succeeded;
 }
 
@@ -393,13 +390,10 @@ syscall_remove (const char *file_name)
 {
   int len = strlen (file_name);
 
-  lock_acquire (&filesys_lock);
-
   pin_frames (file_name, len);
   bool remove_succeeded = filesys_remove (file_name);
   unpin_frames (file_name, len);
 
-  lock_release (&filesys_lock);
   return remove_succeeded;
 }
 
@@ -410,13 +404,10 @@ syscall_open (const char *file_name)
 {
   int len = strlen (file_name);
 
-  lock_acquire (&filesys_lock);
-
   pin_frames (file_name, len);
   struct file *open_file = filesys_open (file_name);
   unpin_frames (file_name, len);
 
-  lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
 
@@ -442,10 +433,7 @@ syscall_filesize (int fd)
   if (open_file == NULL)
     return 0;
 
-  lock_acquire (&filesys_lock);
-  int filesize = file_length (open_file);
-  lock_release (&filesys_lock);
-  return filesize;
+  return file_length (open_file);
 }
 
 /* Reads SIZE bytes from the file open as FD into BUF. Returns the
@@ -481,15 +469,12 @@ syscall_read (int fd, void *buf, unsigned size)
   if (open_file == NULL)
     return -1;
 
-  lock_acquire (&filesys_lock);
-
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_read(). */
   pin_frames (buf, size);
   bytes_read = file_read (open_file, buf, size);
   unpin_frames (buf, size);
 
-  lock_release (&filesys_lock);
   return bytes_read;
 }
 
@@ -520,15 +505,12 @@ syscall_write (int fd, const void *buf, unsigned size)
   if (open_file->inode->type == DIR)
     return -1;
 
-  lock_acquire (&filesys_lock);
-
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_write(). */
   pin_frames (buf, size);
   bytes_written = file_write (open_file, buf, size);
   unpin_frames (buf, size);
 
-  lock_release (&filesys_lock);
   return bytes_written;
 }
 
@@ -543,9 +525,7 @@ syscall_seek (int fd, unsigned position)
   if (open_file == NULL)
     return;
 
-  lock_acquire (&filesys_lock);
   file_seek (open_file, position);
-  lock_release (&filesys_lock);
 }
 
 /* Returns the position of the next byte to be read or written
@@ -558,10 +538,7 @@ syscall_tell (int fd)
   if (open_file == NULL)
     return 0;
 
-  lock_acquire (&filesys_lock);
-  unsigned position = file_tell (open_file);
-  lock_release (&filesys_lock);
-  return position;
+  return file_tell (open_file);
 }
 
 /* Close file descriptor FD for the current process Returns without
@@ -581,9 +558,7 @@ syscall_close (int fd)
       if (entry->fd == fd)
         {
           open_file = entry->file;
-          lock_acquire (&filesys_lock);
           file_close (open_file);
-          lock_release (&filesys_lock);
           list_remove (fd_elem);
           free (entry);
           entry = NULL;

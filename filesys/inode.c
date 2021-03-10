@@ -9,6 +9,8 @@
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
 
+#include "threads/thread.h"
+
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
@@ -172,8 +174,12 @@ add_new_block (struct inode_disk *i_data, block_sector_t sector, off_t ofs)
 
       /* Get indirect block from cache. */
       block_sector_t i_sector = i_data->sectors[INDIR];
+      // printf ("__________________THREAD_ID: %d__________________\n", thread_current ()->tid);
+      // printf ("ADD_BLOCK GET EXCLUSIVE\n");
+      // printf ("I_SECTOR: %d\n", i_sector);
       void *i_block_addr = cache_get_block_exclusive (i_sector, DATA);
       struct indir_block *i_block = (struct indir_block *) i_block_addr;
+      // printf ("ADD_BLOCK GOT BLOCK AT I_SECTOR: %d\n", i_sector);
 
       /* Set default values for indirect block if new. */
       if (new_indir)
@@ -450,8 +456,7 @@ void
 inode_remove (struct inode *inode) 
 {
   ASSERT (inode != NULL);
-  ASSERT (lock_held_by_current_thread (&inode->lock));
-  
+  lock_acquire (&inode->lock);
   inode->removed = true;
   lock_release (&inode->lock);
 }
@@ -474,6 +479,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
         return bytes_read;
 
       /* Disk sector to read, starting byte offset within sector. */
+      lock_acquire (&inode->lock);
       block_sector_t sector_idx = byte_to_sector (inode, offset);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
@@ -521,6 +527,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           if (next_sector != SECTOR_NOT_PRESENT)
             read_ahead_signal (next_sector);
         }
+      
+      lock_release (&inode->lock);
     }
 
   return bytes_read;
@@ -549,6 +557,7 @@ allocate_zeroed_block_for_file (struct inode *inode, off_t offset)
   struct inode_disk *inode_data = (struct inode_disk *) i_cache_block_addr;
 
   /* Write new sector number to inode_disk. */
+  // printf ("__________________INODE_SECTOR: %d__________________\n", inode->sector);
   if (!add_new_block (inode_data, new_sector, offset))
     {
       cache_exclusive_release (i_cache_block_addr);
@@ -578,10 +587,13 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   if (inode->deny_write_cnt)
     return 0;
   
+  lock_acquire (&inode->lock);
   off_t zero_gap = offset - inode_length (inode);
   off_t cur_pos = 0;
 
   /* Zero-extend file if necessary. */
+   // printf ("__________________THREAD_ID: %d__________________\n", thread_current ()->tid);
+   // printf ("__________________INODE_SECTOR: %d__________________\n", inode->sector);
   while (cur_pos < zero_gap)
     {
       /* Sector to zero-fill. */
@@ -596,6 +608,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
             return bytes_written;
 
           /* Get new disk sector into the cache. */
+          // // printf ("______THREAD_ID: %d______\n", thread_current ()->tid);
+          // printf ("1 (sector): %d\n", new_sector);
           void *d_cache_block_addr = 
             cache_get_block_exclusive (new_sector, DATA);
           
@@ -605,19 +619,19 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           int chunk = gap_left < sector_left ? gap_left : sector_left;
 
           /* Write full or partial block of zeros to the new sector. */
-          if (sector_ofs == 0 && chunk == BLOCK_SECTOR_SIZE)
-            memset (d_cache_block_addr, 0, BLOCK_SECTOR_SIZE);
-          else
-            memset (d_cache_block_addr + sector_ofs, 0, chunk);
+          memset (d_cache_block_addr + sector_ofs, 0, chunk);
           cache_exclusive_release (d_cache_block_addr);
 
           /* Get inode_disk block of file from cache. */
+          // // printf ("______THREAD_ID: %d______\n", thread_current ()->tid);
+          // printf ("2 (sector): %d\n", inode->sector);
           void *i_cache_block_addr = 
             cache_get_block_exclusive (inode->sector, INODE);
           struct inode_disk *inode_data = 
             (struct inode_disk *) i_cache_block_addr;
 
           /* Write new sector number to inode_disk. */
+          // printf ("__________________INODE_SECTOR: %d__________________\n", inode->sector);
           if (!add_new_block (inode_data, new_sector, cur_pos))
             {
               cache_exclusive_release (i_cache_block_addr);
@@ -649,6 +663,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
             return bytes_written;
 
           /* Get new disk sector into the cache. */
+          // // printf ("______THREAD_ID: %d______\n", thread_current ()->tid);
+          // printf ("3 (sector): %d\n", new_sector);
           void *d_cache_block_addr = 
             cache_get_block_exclusive (new_sector, DATA);
 
@@ -663,12 +679,15 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           cache_exclusive_release (d_cache_block_addr);
 
           /* Get inode_disk block of file from cache. */
+          // // printf ("______THREAD_ID: %d______\n", thread_current ()->tid);
+          // printf ("4 (sector): %d\n", inode->sector);
           void *i_cache_block_addr = 
             cache_get_block_exclusive (inode->sector, INODE);
           struct inode_disk *inode_data = 
             (struct inode_disk *) i_cache_block_addr;
 
           /* Write new sector number to inode_disk. */
+          // printf ("__________________INODE_SECTOR: %d__________________\n", inode->sector);
           if (!add_new_block (inode_data, new_sector, offset))
             {
               cache_exclusive_release (i_cache_block_addr);
@@ -691,6 +710,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           off_t length = inode_length (inode);
 
           /* Get data block from cache. */
+          // // printf ("______THREAD_ID: %d______\n", thread_current ()->tid);
+          // printf ("5 (sector): %d\n", sector_idx);
           size_t cache_idx = cache_get_block (sector_idx, DATA);
           struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
           void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
@@ -708,6 +729,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
              if write was beyond end of file in last sector. */
           if (offset >= length)
             {
+              // printf ("6\n");
               void *i_block_addr = 
                 cache_get_block_exclusive (inode->sector, INODE);
               struct inode_disk *inode_data = 
@@ -722,6 +744,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           bytes_written += chunk;
         }
     }
+  lock_release (&inode->lock);
 
   return bytes_written;
 }
