@@ -477,7 +477,10 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
     {
       /* Offset is past end of file, so return zero bytes read. */
       if (offset >= length)
-        return bytes_read;
+        {
+          cache_shared_release (inode_block_addr);
+          return bytes_read;
+        }
 
       /* Disk sector to read, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode_data, offset);
@@ -492,7 +495,10 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           block_sector_t new_sector = 
             allocate_zeroed_block_for_file (inode_data, offset);
           if (new_sector == SECTOR_NOT_PRESENT)
-            return bytes_read;
+            {
+              cache_shared_release (inode_block_addr);
+              return bytes_read;
+            }
 
           /* Update sector_idx to the newly allocated block of zeros. */
           sector_idx = new_sector;
@@ -506,7 +512,10 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       /* Number of bytes to actually copy out of this sector. */
       int chunk = size < min_left ? size : min_left;
       if (chunk == 0)
-        return bytes_read;
+        {
+          cache_shared_release (inode_block_addr);
+          return bytes_read;
+        }
 
       /* Get data block from cache. */
       // // printf ("INODE_READ_AT...\n");
@@ -626,7 +635,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           /* Allocate a new disk sector. */
           block_sector_t new_sector = 0;
           if (!free_map_allocate (1, &new_sector))
-            return bytes_written;
+            {
+              cache_conditional_release (inode_block_addr, extend);
+              return bytes_written;
+            }
 
           /* Get new disk sector into the cache. */
           void *d_cache_block_addr = 
@@ -645,6 +657,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           if (!add_new_block (inode_data, new_sector, cur_pos))
             {
               free_map_release (new_sector, 1);
+              cache_conditional_release (inode_block_addr, extend);
               return bytes_written;
             }
 
@@ -669,7 +682,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           /* Allocate a new disk sector. */
           block_sector_t new_sector = 0;
           if (!free_map_allocate (1, &new_sector))
-            return bytes_written;
+            {
+              cache_conditional_release (inode_block_addr, extend);
+              return bytes_written;
+            }
 
           /* Get new disk sector into the cache. */
           void *d_cache_block_addr = 
@@ -689,6 +705,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           if (!add_new_block (inode_data, new_sector, offset))
             {
               free_map_release (new_sector, 1);
+              cache_conditional_release (inode_block_addr, extend);
               return bytes_written;
             }
 

@@ -564,8 +564,8 @@ rw_lock_shared_try_acquire (struct rw_lock *rw_lock)
 void
 rw_lock_shared_release (struct rw_lock *rw_lock)
 {
-  lock_acquire (&rw_lock->lock);
   ASSERT (current_thread_is_reader (rw_lock));
+  lock_acquire (&rw_lock->lock);
 
   list_remove (&thread_current ()->rw_elem);
   if (list_empty (&rw_lock->active_readers))
@@ -580,8 +580,8 @@ rw_lock_shared_release (struct rw_lock *rw_lock)
 void 
 rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
 {
-  lock_acquire (&rw_lock->lock);
   ASSERT (current_thread_is_reader (rw_lock));
+  lock_acquire (&rw_lock->lock);
 
   list_remove (&thread_current ()->rw_elem);
   list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
@@ -655,15 +655,20 @@ rw_lock_exclusive_to_shared (struct rw_lock *rw_lock)
 bool
 current_thread_is_reader (struct rw_lock *rw_lock)
 {
+  lock_acquire (&rw_lock->lock);
   struct list_elem *e;
   for (e = list_begin (&rw_lock->active_readers); e != list_end (&
        rw_lock->active_readers); e = list_next (e))
     {
       struct thread *t = list_entry (e, struct thread, rw_elem);
       if (t == thread_current ())
-        return true;
+        {
+          lock_release (&rw_lock->lock);
+          return true;
+        }
     }
 
+  lock_release (&rw_lock->lock);
   return false;
 }
 
