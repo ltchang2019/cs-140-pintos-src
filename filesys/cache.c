@@ -275,11 +275,8 @@ clock_find (void)
 
   while (true)
     {
-      printf ("CHECKING IS READER @ sector: %d\n", ((void *) clock_hand - cache) / BLOCK_SECTOR_SIZE);
-      if (!current_thread_is_reader (&clock_hand->rw_lock) &&
-          rw_lock_shared_try_acquire (&clock_hand->rw_lock))
+      if (rw_lock_shared_try_acquire (&clock_hand->rw_lock))
         {
-          printf ("CHECKED IS READER in\n");
           if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
             {
               rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
@@ -291,7 +288,6 @@ clock_find (void)
             }
           rw_lock_shared_release (&clock_hand->rw_lock);
         }
-      printf ("CHECKED IS READER out\n");
         
       /* Advance clock hand. */
       clock_advance ();

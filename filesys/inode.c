@@ -466,6 +466,7 @@ inode_remove (struct inode *inode)
 off_t
 inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 {
+  // printf ("INODE_READ_AT\n");
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
   
@@ -482,6 +483,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           return bytes_read;
         }
 
+      // printf ("READ_AT: byte_to_sector\n");
       /* Disk sector to read, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode_data, offset);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
@@ -491,7 +493,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
          zero block at this offset in the file. */
       if (sector_idx == SECTOR_NOT_PRESENT && offset < length)
         {
-          // // printf ("ALLOCATING ZERO\n");
+          // printf ("READ_AT: allocate_zeroed\n");
           block_sector_t new_sector = 
             allocate_zeroed_block_for_file (inode_data, offset);
           if (new_sector == SECTOR_NOT_PRESENT)
@@ -517,8 +519,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           return bytes_read;
         }
 
+      // printf ("FAIL?\n");
       /* Get data block from cache. */
-      // // printf ("INODE_READ_AT...\n");
       void *cache_block_addr = cache_get_block_shared (sector_idx, DATA);
       
       /* Read full or partial block of data. */
@@ -587,6 +589,7 @@ off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 off_t offset)
 {
+  // printf ("INODE_WRITE_AT\n");
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
 
