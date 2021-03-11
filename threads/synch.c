@@ -274,6 +274,20 @@ lock_acquire (struct lock *lock)
   intr_set_level (old_level);
 }
 
+/* Acquire lock if not held and return true if lock was
+   newly acquired. */
+bool
+lock_acquire_in_context (struct lock *lock)
+{
+  if (!lock_held_by_current_thread (lock))
+    {
+      lock_acquire (lock);
+      return true;
+    }
+
+  return false;
+}
+
 /* Sets priority of lock holder to donated priority. Sets lock's priority
    to donated priority. Updates (reorders) holder's held_locks list. Sorts
    the thread library's ready queue to reflect new priority of donee. 
@@ -368,6 +382,14 @@ lock_release (struct lock *lock)
   sema_up (&lock->semaphore);
 
   intr_set_level (old_level);
+}
+
+/* Releases lock if RELEASE is true. */
+void 
+lock_conditional_release (struct lock *lock, bool release)
+{
+  if (release)
+    lock_release (lock);
 }
 
 /* Returns true if the current thread holds LOCK, false

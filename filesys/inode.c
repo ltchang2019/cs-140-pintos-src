@@ -344,17 +344,9 @@ inode_reopen (struct inode *inode)
 {
   if (inode != NULL)
     {
-      bool release = false;
-      if (!lock_held_by_current_thread (&inode->lock))
-        {
-          release = true;
-          lock_acquire (&inode->lock);
-        }
-        
+      bool release = lock_acquire_in_context (&inode->lock);
       inode->open_cnt++;
-
-      if (release)
-        lock_release (&inode->lock);
+      lock_conditional_release (&inode->lock, release);
     }
     
   return inode;
@@ -377,13 +369,7 @@ inode_close (struct inode *inode)
   if (inode == NULL)
     return;
 
-  bool release = false;
-  if (!lock_held_by_current_thread (&inode->lock))
-    {
-      release = true;
-      lock_acquire (&inode->lock);
-    }
-
+  bool release = lock_acquire_in_context (&inode->lock);
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0)
     {
@@ -470,10 +456,7 @@ inode_close (struct inode *inode)
       free (inode); 
     }
   else 
-    {
-      if (release)
-        lock_release (&inode->lock);
-    }
+    lock_conditional_release (&inode->lock, release);
 }
 
 /* Marks INODE to be deleted when it is closed by the last
@@ -619,8 +602,13 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
 
+  bool release = lock_acquire_in_context (&inode->lock);
   if (inode->deny_write_cnt)
-    return 0;
+    {
+      lock_conditional_release (&inode->lock, release);
+      return 0;
+    }
+  lock_conditional_release (&inode->lock, release);
   
   // lock_acquire (&inode->lock);
   // printf ("INODE_WRITE_AT (inode_length)\n");
@@ -794,7 +782,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 void
 inode_deny_write (struct inode *inode) 
 {
+  lock_acquire (&inode->lock);
   inode->deny_write_cnt++;
+  lock_release (&inode->lock);
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 }
 
@@ -806,7 +796,9 @@ inode_allow_write (struct inode *inode)
 {
   ASSERT (inode->deny_write_cnt > 0);
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
+  lock_acquire (&inode->lock);
   inode->deny_write_cnt--;
+  lock_release (&inode->lock);
 }
 
 /* Returns the length, in bytes, of INODE's data. */

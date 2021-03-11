@@ -603,19 +603,18 @@ syscall_chdir (const char *dir_path)
   if (inode == NULL)
     return false;
 
-  lock_acquire (&inode->lock);
-
   /* Fail call if inode removed. */
+  lock_acquire (&inode->lock);
   if (inode->removed)
     {
       lock_release (&inode->lock);
       return false;
     }
+  lock_release (&inode->lock);
 
   /* Close current cwd inode and set to new one. */
   inode_close (thread_current ()->cwd_inode);
   thread_current ()->cwd_inode = inode;
-  lock_release (&inode->lock);
   
   return true;
 }
