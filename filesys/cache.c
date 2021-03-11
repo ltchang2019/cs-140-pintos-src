@@ -54,7 +54,6 @@ cache_idx_to_cache_entry (size_t cache_idx)
 void *
 cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 {
-  // printf ("CACHE GET BLOCK EXCLUSIVE\n");
   size_t cache_idx = cache_get_block (sector, type);
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   rw_lock_shared_to_exclusive (&ce->rw_lock);
@@ -67,7 +66,6 @@ cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 void *
 cache_get_block_shared (block_sector_t sector, enum inode_type type)
 {
-  // printf ("CACHE GET BLOCK SHARED\n");
   size_t cache_idx = cache_get_block (sector, type);
   return cache_idx_to_cache_block_addr (cache_idx);
 }
@@ -250,11 +248,9 @@ clock_find (void)
 
   while (true)
     {
-      // printf ("CLOCK_FIND\n");
       if (!current_thread_is_reader (&clock_hand->rw_lock) &&
           rw_lock_shared_try_acquire (&clock_hand->rw_lock))
         {
-          // printf ("GOT CLOCK_HAND SHARED\n");
           if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
             {
               rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
