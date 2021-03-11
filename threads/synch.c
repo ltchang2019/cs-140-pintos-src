@@ -488,22 +488,35 @@ rw_lock_init (struct rw_lock *rw_lock)
   lock_init (&rw_lock->lock);
   cond_init (&rw_lock->cond);
   list_init (&rw_lock->active_readers);
+  list_init (&rw_lock->waiting_readers);
   list_init (&rw_lock->waiting_writers);
   rw_lock->writer = NULL;
+  rw_lock->consec_readers = 0;
+  rw_lock->consec_writers = 0;
 }
 
 /* Acquires RW_LOCK as a reader, sleeping until it becomes available
    if necessary. Sleeping will occur if there are one or more writers
    waiting to acquire the rw_lock, or if the rw_lock is currently
    held by a writer. After the rw_lock is acquired by the reader,
-   the reader is put in the rw_lock's active_readers list. */
+   the reader is put in the rw_lock's active_readers list. Note that
+   there is a cap of 6 consecutive readers that can run in the face of
+   a waiting writer before access must be transferred to the writer. */
 void 
 rw_lock_shared_acquire (struct rw_lock *rw_lock)
 {  
   lock_acquire (&rw_lock->lock);
-  while (rw_lock->writer != NULL)
+  list_push_back (&rw_lock->waiting_readers, &thread_current ()->rw_elem);
+  while (rw_lock->writer != NULL || 
+         (rw_lock->consec_readers >= 6 && 
+         !list_empty (&rw_lock->waiting_writers)))
     cond_wait (&rw_lock->cond, &rw_lock->lock);
 
+  if (rw_lock->consec_writers > 0)
+    rw_lock->consec_writers = 0;
+  rw_lock->consec_readers++;
+
+  list_remove (&thread_current ()->rw_elem);
   list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
   lock_release (&rw_lock->lock);
 }
@@ -512,16 +525,10 @@ bool
 rw_lock_shared_try_acquire (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
-  if (rw_lock->writer != NULL)
+  if (rw_lock->writer != NULL || !list_empty (&rw_lock->waiting_writers))
     {
       lock_release (&rw_lock->lock);
       return false;
-    }
-  
-  while (rw_lock->writer != NULL)
-    {
-      printf ("WAITING ON WRITER\n");
-      cond_wait (&rw_lock->cond, &rw_lock->lock);
     }
 
   list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
@@ -568,14 +575,24 @@ rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
    if necessary. If the writer sleeps, the thread is added to the 
    waiting_writers list. After acquiring the rw_lock's internal lock, 
    the thread is removed from the waiting_writers list and the writer
-   field is set to the calling thread. */
+   field is set to the calling thread. Note that there is also cap of 2 
+   consecutive writers that can run in the face of waiting readers before
+   access must be transferred back to readers. */
 void
 rw_lock_exclusive_acquire (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
+  
   list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
-  while (!list_empty (&rw_lock->active_readers) || rw_lock->writer != NULL)
+  while (rw_lock->writer != NULL ||
+         !list_empty (&rw_lock->active_readers) || 
+         (rw_lock->consec_writers >= 2 && 
+         !list_empty (&rw_lock->waiting_readers)))
     cond_wait (&rw_lock->cond, &rw_lock->lock);
+
+  if(rw_lock->consec_readers > 0)
+    rw_lock->consec_readers = 0;
+  rw_lock->consec_writers++;
 
   list_remove (&thread_current ()->rw_elem);
   rw_lock->writer = thread_current ();

@@ -66,8 +66,11 @@ struct rw_lock
     struct lock lock;             /* Lock for atomic increments/decrements. */
     struct condition cond;        /* Condition variable. */
     struct list active_readers;
+    struct list waiting_readers;
     struct list waiting_writers;
     struct thread *writer;
+    size_t consec_readers;
+    size_t consec_writers;
   };
 
 void rw_lock_init (struct rw_lock *);
