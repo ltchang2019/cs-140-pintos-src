@@ -70,6 +70,24 @@ cache_get_block_shared (block_sector_t sector, enum inode_type type)
   return cache_idx_to_cache_block_addr (cache_idx);
 }
 
+void 
+cache_shared_to_exclusive (void *block_addr)
+{
+  ASSERT ((block_addr - cache) % BLOCK_SECTOR_SIZE == 0);
+  size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  rw_lock_shared_to_exclusive (&ce->rw_lock);
+}
+
+void
+cache_exclusive_to_shared (void *block_addr)
+{
+  ASSERT ((block_addr - cache) % BLOCK_SECTOR_SIZE == 0);
+  size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  rw_lock_exclusive_to_shared (&ce->rw_lock);
+}
+
 void
 cache_exclusive_release (void *block_addr)
 {
@@ -86,6 +104,15 @@ cache_shared_release (void *block_addr)
   size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
   struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
   rw_lock_shared_release (&ce->rw_lock);
+}
+
+void
+cache_conditional_release (void *block_addr, bool exclusive)
+{
+  if (exclusive)
+    rw_lock_exclusive_release (block_addr);
+  else
+    rw_lock_shared_release (block_addr);
 }
 
 /* Initializes the buffer cache.

@@ -585,7 +585,7 @@ rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
 
   list_remove (&thread_current ()->rw_elem);
   list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
-  while (!list_empty (&rw_lock->active_readers))
+  while (!list_empty (&rw_lock->active_readers) || rw_lock->writer != NULL)
     cond_wait (&rw_lock->cond, &rw_lock->lock);
 
   list_remove (&thread_current ()->rw_elem);
