@@ -2,8 +2,8 @@
 #define FILESYS_PATH_H
 
 #include <string.h>
-#include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "filesys/inode.h"
 
 struct inode *path_to_inode (const char *path);
 struct dir *get_start_dir (const char *path);

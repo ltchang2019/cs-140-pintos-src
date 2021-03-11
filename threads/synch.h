@@ -67,17 +67,17 @@ struct rw_lock
   {
     struct lock lock;             /* Lock for atomic increments/decrements. */
     struct condition cond;        /* Condition variable. */
-    struct list active_readers;
-    struct list waiting_readers;
-    struct list waiting_writers;
-    struct thread *writer;
-    size_t consec_readers;
-    size_t consec_writers;
+    struct list active_readers;   /* List of readers holding rw_lock. */
+    struct list waiting_readers;  /* List of readers waiting for rw_lock. */
+    struct list waiting_writers;  /* List of writers waiting for rw_lock. */
+    struct thread *writer;        /* Writer thread holding the rw_lock. */
+    size_t consec_readers;        /* Number of consecutive readers. */
+    size_t consec_writers;        /* Number of consecutive writers. */
   };
 
 void rw_lock_init (struct rw_lock *);
 void rw_lock_shared_acquire (struct rw_lock *);
-bool rw_lock_shared_try_acquire (struct rw_lock *rw_lock);
+bool rw_lock_shared_try_acquire (struct rw_lock *);
 void rw_lock_shared_release (struct rw_lock *);
 void rw_lock_shared_to_exclusive (struct rw_lock *);
 void rw_lock_exclusive_acquire (struct rw_lock *);

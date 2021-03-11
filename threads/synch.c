@@ -274,8 +274,7 @@ lock_acquire (struct lock *lock)
   intr_set_level (old_level);
 }
 
-/* Acquire lock if not held and return true if lock was
-   newly acquired. */
+/* Acquire lock if not held and return true if lock was newly acquired. */
 bool
 lock_acquire_in_context (struct lock *lock)
 {
@@ -392,9 +391,8 @@ lock_conditional_release (struct lock *lock, bool release)
     lock_release (lock);
 }
 
-/* Returns true if the current thread holds LOCK, false
-   otherwise.  (Note that testing whether some other thread holds
-   a lock would be racy.) */
+/* Returns true if the current thread holds LOCK, false otherwise.
+   (Note: testing whether some other thread holds lock would be racy.) */
 bool
 lock_held_by_current_thread (const struct lock *lock) 
 {
@@ -501,9 +499,9 @@ cond_broadcast (struct condition *cond, struct lock *lock)
    ordinary lock. It is writer-preferring, which means that priority
    is given to writers waiting for the rw_lock over readers. The
    logic for the writer-preferring rw_lock is implemented using
-   lists containing the currently active readers and currently waiting 
-   writers, as well a reference to the current writer if the rw_lock has
-   been exclusively acquired. */
+   lists containing the currently active readers and currently
+   waiting writers, as well a reference to the current writer if
+   the rw_lock has been exclusively acquired. */
 void
 rw_lock_init (struct rw_lock *rw_lock)
 {
@@ -543,6 +541,8 @@ rw_lock_shared_acquire (struct rw_lock *rw_lock)
   lock_release (&rw_lock->lock);
 }
 
+/* Attempts to acquire RW_LOCK as a reader. Returns true if
+   successful and false otherwise. */
 bool 
 rw_lock_shared_try_acquire (struct rw_lock *rw_lock)
 {

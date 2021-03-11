@@ -8,6 +8,9 @@
 #include "userprog/process.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "filesys/path.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
@@ -17,9 +20,6 @@
 #include "vm/frame.h"
 #include "vm/mmap.h"
 #include "vm/page.h"
-#include "filesys/file.h"
-#include "filesys/filesys.h"
-#include "filesys/path.h"
 
 /* Identity mapping between process PIDs and thread TIDs. */
 typedef tid_t pid_t;
@@ -636,6 +636,8 @@ syscall_readdir (int fd, char *name)
   ASSERT (open_file->pos % sizeof (struct dir_entry) == 0);
 
   struct dir *dir = malloc (sizeof (struct dir));
+  if (dir == NULL)
+    PANIC ("syscall_readdir: malloc failed for dir");
   dir->pos = open_file->pos;
   dir->inode = open_file->inode;
   
@@ -643,6 +645,8 @@ syscall_readdir (int fd, char *name)
   open_file->pos += sizeof (struct dir_entry);
 
   free (dir);
+  dir = NULL;
+
   return success;
 }
 

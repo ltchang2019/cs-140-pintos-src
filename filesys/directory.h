@@ -3,14 +3,13 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include "devices/block.h"
 #include "filesys/off_t.h"
+#include "devices/block.h"
 
-/* Maximum length of a file name component.
-   This is the traditional UNIX maximum length.
-   After directories are implemented, this maximum length may be
-   retained, but much longer full path names must be allowed. */
+/* Maximum length of a relative file name component. */
 #define NAME_MAX 26
+
+/* Offset in a directory at which entries begin. */
 #define DIR_OFFSET (sizeof (struct dir_entry) * 2)
 
 /* A directory. */

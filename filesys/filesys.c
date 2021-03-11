@@ -3,10 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "filesys/cache.h"
+#include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
-#include "filesys/directory.h"
 #include "filesys/path.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
@@ -34,20 +34,21 @@ filesys_init (bool format)
 
   free_map_open ();
   
-  /* Add "." and ".." entries to root directory. */
+  /* Add default "." and ".." entries to root directory. */
   if (format)
     {
       struct dir *dir = dir_open (inode_open (ROOT_DIR_SECTOR));
-      dir_add (dir, ".", ROOT_DIR_SECTOR);
-      dir_add (dir, "..", ROOT_DIR_SECTOR);
+      if (!dir_add (dir, ".", ROOT_DIR_SECTOR) ||
+          !dir_add (dir, "..", ROOT_DIR_SECTOR))
+        PANIC ("Adding default entries to root directory failed.");
       dir_close (dir);
     }
 
   thread_current ()->cwd_inode = inode_open (ROOT_DIR_SECTOR);
 }
 
-/* Shuts down the file system module, writing any unwritten data
-   to disk. */
+/* Shuts down the file system module, writing any unwritten
+   data to disk. */
 void
 filesys_done (void) 
 {
@@ -61,14 +62,14 @@ filesys_done (void)
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool
-filesys_create (const char *path, off_t initial_size, enum inode_type type) 
+filesys_create (const char *path, off_t initial_size, enum inode_type type)
 {   
   /* Extract base and file/directory name. */
   char *base = extract_base (path);
   char *name = extract_name (path);
 
-  /* If name == NULL, no slashes so use cwd. Else, open last 
-     subdirectory of base. */
+  /* If base == NULL, no slashes so use cwd. Else, open
+     last subdirectory of base. */
   struct inode *parent_inode;
   if (base == NULL)
     parent_inode = inode_reopen (thread_current ()->cwd_inode);
@@ -98,7 +99,7 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
                   && dir_add (parent_dir, name, new_inode_sector));
 
   /* If creating directory, add current and parent dir_entries. */
-  if (success && type == DIR)
+  if (type == DIR)
     {
       struct dir *new_dir = dir_open (inode_open (new_inode_sector));
       success = (success 
@@ -109,7 +110,7 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
   
   /* If new directory creation at all failed, set allocated disk
      block to free. */
-  if (!success && new_inode_sector != 0) 
+  if (!success || new_inode_sector == SECTOR_NOT_PRESENT) 
     free_map_release (new_inode_sector, 1);
   
   lock_release (&parent_inode->lock);
@@ -125,31 +126,14 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
 struct file *
 filesys_open (const char *path)
 {
-  // HACK
-  // // printf ("PATH %s\n", path);
-  char *hack;
-  hack = (char *) path;
-  if (hack[0] == '/' && hack[1] == '/')
-    hack = ((char *) path) + 1;
+  char *path_root = (char *) path;
+  if (path_root[0] == '/' && path_root[1] == '/')
+    path_root++;
 
-  // SUPER STRING HACK
-  char *super_hack = malloc (strlen (path) + 1);
-  int i = 0;
-  for (char *ptr = (char *) path; *ptr != 0; ptr++)
-    {
-      super_hack[i] = *ptr;
-      if (*ptr == '/' && (*(ptr + 1)) == '/')
-        {
-          ptr++;
-        }
-      i++;
-    }
-  super_hack[i] = 0;
-
-  if (strlen (hack) == 0)
+  if (strlen (path_root) == 0)
     return NULL;
 
-  struct inode *inode = path_to_inode ((char *) hack);
+  struct inode *inode = path_to_inode (path_root);
   if (inode == NULL)
     return NULL;
   
@@ -179,23 +163,21 @@ filesys_remove (const char *path)
   if (to_remove_inode == NULL)
     return false;
   
-  /* Acquire lock on inode and release once inode->removed
-     has been set to true in dir_remove(). */
-  // printf ("ACQUIRING CHILD LOCK\n");
+  /* Acquire lock on inode and release once inode->removed has been
+     set to true in dir_remove(). */
   lock_acquire (&to_remove_inode->lock);
-  // printf ("ACQUIRIED CHILD LOCK\n");
 
   if (to_remove_inode->type == DIR)
     {
       /* Return false if other processes currently have directory open
          (including open for cwd). */
-      if (to_remove_inode-> open_cnt > 1)
+      if (to_remove_inode->open_cnt > 1)
         {
           lock_release (&to_remove_inode->lock);
           return false;
         }
 
-      /* Return false it is directory that isn't empty. */
+      /* Return false if directory is not empty. */
       struct dir *dir = dir_open (inode_reopen (to_remove_inode));
       bool empty = dir_is_empty (dir);
       dir_close (dir);
@@ -205,29 +187,25 @@ filesys_remove (const char *path)
           return false;
         }
     }
+  lock_release (&to_remove_inode->lock);
 
-  /* If name == NULL, no slashes so use cwd. Else, open last 
+  /* If base == NULL, no slashes so use cwd. Else, open last
      subdirectory of base. */
-  // printf ("OPENING PARENT INODE LOCK\n");
   struct inode *parent_inode;
   if (base == NULL)
     parent_inode = inode_reopen (thread_current ()->cwd_inode);
   else
     parent_inode = path_to_inode (base);
-  // printf ("OPENED PARENT INODE LOCK\n");
     
   /* Note that parent inode could not have been removed since
      we already know there is a child directory. */
   lock_acquire (&parent_inode->lock);
   struct dir *parent_dir = dir_open (parent_inode);
-  // printf ("REMOVING DIR FROM PARENT\n");
   bool success = parent_dir != NULL && dir_remove (parent_dir, name);
   lock_release (&parent_inode->lock);
   
-  // printf ("REMOVING CHILD INODE\n");
-  inode_close (to_remove_inode);
   dir_close (parent_dir); 
-  // printf ("INODE_REMOVE FINISHED___\n");
+  inode_close (to_remove_inode);
   return success;
 }
 
@@ -235,10 +213,10 @@ filesys_remove (const char *path)
 static void
 do_format (void)
 {
-  // printf ("Formatting file system...");
+  printf ("Formatting file system...");
   free_map_create ();
   if (!dir_create (ROOT_DIR_SECTOR, 16))
     PANIC ("root directory creation failed");
   free_map_close ();
-  // printf ("done.\n");
+  printf ("done.\n");
 }

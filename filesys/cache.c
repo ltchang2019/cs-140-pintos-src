@@ -43,6 +43,28 @@ cache_idx_to_cache_block_addr (size_t cache_idx)
   return cache + (cache_idx * BLOCK_SECTOR_SIZE);
 }
 
+/* Translates CACHE_IDX into an inode_disk struct.
+
+   Should only be called when CACHE_IDX's corresponding
+   block contains an inode_disk. */
+struct inode_disk *
+cache_idx_to_inode_disk (size_t cache_idx)
+{
+  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+  return (struct inode_disk *) cache_block_addr;
+}
+
+/* Translates CACHE_IDX into an indir_block struct.
+
+   Should only be called when CACHE_IDX's corresponding
+   block contains an indir_block. */
+struct indir_block *
+cache_idx_to_indir_block (size_t cache_idx)
+{
+  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+  return (struct indir_block *) cache_block_addr;
+}
+
 /* Translates CACHE_IDX into address of the corresponding
    cache_entry in the cache_metadata. */
 struct cache_entry *
@@ -51,18 +73,30 @@ cache_idx_to_cache_entry (size_t cache_idx)
   return cache_metadata + cache_idx;
 }
 
+/* Get a block with sector number SECTOR and inode type
+   TYPE into memory by locating it in the cache or loading
+   it from disk.
+   
+   On function return, the rw_lock of the cache slot is
+   held in exclusive_acquire mode. */
 void *
 cache_get_block_exclusive (block_sector_t sector, enum inode_type type)
 {
   size_t cache_idx = cache_get_block (sector, type);
-  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  struct cache_entry *ce = cache_metadata + cache_idx;
   rw_lock_shared_to_exclusive (&ce->rw_lock);
 
-  /* Always going to set dirty when acquiring exclusive. */
+  /* Always going to set dirty when acquiring in exclusive mode. */
   ce->dirty = true;
   return cache_idx_to_cache_block_addr (cache_idx);
 }
 
+/* Get a block with sector number SECTOR and inode type
+   TYPE into memory by locating it in the cache or loading
+   it from disk.
+   
+   On function return, the rw_lock of the cache slot is
+   held in shared_acquire mode. */
 void *
 cache_get_block_shared (block_sector_t sector, enum inode_type type)
 {
@@ -70,21 +104,27 @@ cache_get_block_shared (block_sector_t sector, enum inode_type type)
   return cache_idx_to_cache_block_addr (cache_idx);
 }
 
+/* Release exclusive hold on the rw_lock of the cache slot
+   with address BLOCK_ADDR. */
 void
 cache_exclusive_release (void *block_addr)
 {
   ASSERT ((block_addr - cache) % BLOCK_SECTOR_SIZE == 0);
+
   size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
-  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  struct cache_entry *ce = cache_metadata + cache_idx;
   rw_lock_exclusive_release (&ce->rw_lock);
 }
 
+/* Release shared hold on the rw_lock of the cache slot
+   with address BLOCK_ADDR. */
 void 
 cache_shared_release (void *block_addr)
 {
   ASSERT ((block_addr - cache) % BLOCK_SECTOR_SIZE == 0);
+
   size_t cache_idx = (block_addr - cache) / BLOCK_SECTOR_SIZE;
-  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  struct cache_entry *ce = cache_metadata + cache_idx;
   rw_lock_shared_release (&ce->rw_lock);
 }
 
@@ -136,26 +176,6 @@ cache_init (void)
     PANIC ("cache_init: failed to spawn cache worker threads.");
 }
 
-/* Translates CACHE_IDX into inode_data struct.
-   Should only be called when CACHE_IDX's corresponding
-   block contains an inode_disk. */
-struct inode_disk *
-cache_idx_to_inode_disk (size_t cache_idx)
-{
-  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-  return (struct inode_disk *) cache_block_addr;
-}
-
-/* Translates CACHE_IDX into indir_block struct.
-   Should only be called when CACHE_IDX's corresponding
-   block contains an indir_block. */
-struct indir_block *
-cache_idx_to_indir_block (size_t cache_idx)
-{
-  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-  return (struct indir_block *) cache_block_addr;
-}
-
 /* Get a block with sector number SECTOR into memory by
    locating it in the cache or loading it from disk.
 
@@ -179,7 +199,7 @@ cache_get_block (block_sector_t sector, enum sector_type type)
    cache_entry. If the block with sector number SECTOR is
    not in the cache, nothing needs to be done.
    
-   If the block is in the cache, cache_find_slot() will
+   If the block is in the cache, cache_find_block() will
    return with a rw_lock in shared_acquire mode on the
    cache slot. Release this rw_lock after resetting fields
    and before returning to caller. */
@@ -314,9 +334,6 @@ cache_find_block (block_sector_t sector)
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
     {
       struct cache_entry *ce = cache_metadata + idx;
-      
-      /* Already have eviction_lock so don't need to worry
-         about sector_idx changing under us. */
       if (ce->sector_idx == sector)
         {
           rw_lock_shared_acquire (&ce->rw_lock);
@@ -339,7 +356,6 @@ cache_load (block_sector_t sector)
 {
   size_t cache_idx;
   struct cache_entry *ce;
-  // printf ("WAITING ON EVICTION LOCK...\n");
   lock_acquire (&eviction_lock);
 
   /* Block already in cache, so just return the cache_idx. */
@@ -348,7 +364,6 @@ cache_load (block_sector_t sector)
     {
       
       lock_release (&eviction_lock);
-      // printf ("RELEASED EVICTION_LOCK after SUCCESSFUL GET\n");
       return cache_idx;
     }
 
@@ -360,7 +375,6 @@ cache_load (block_sector_t sector)
   if (cache_idx != BITMAP_ERROR)
     {
       ce = cache_metadata + cache_idx;
-      // printf ("SHARED_ACQUIRING NEW ALLOCATED BLOCK\n");
       rw_lock_shared_acquire (&ce->rw_lock);
       lock_release (&eviction_lock);
 
@@ -370,11 +384,10 @@ cache_load (block_sector_t sector)
     }
 
   /* Cache is full, so evict a block from a cache slot to
-     obtain a free slot for the new block. Can release 
+     obtain a free slot for the new block. Can release
      eviction_lock since we will have shared lock on the
      returned cache slot, ensuring that the block will not
      be evicted by another process. */
-  // printf ("EVICTING BLOCK\n");
   cache_idx = cache_evict_block ();
   lock_release (&eviction_lock);
 
@@ -420,15 +433,16 @@ cache_read_ahead (void *aux UNUSED)
 
       /* Deallocate memory for sector elem. */
       free (se);
+      se = NULL;
     }
 }
 
-/* A thread function that periodically writes all dirty
-   blocks in the cache back to disk.
+/* A thread function that periodically writes the free map
+   and all dirty blocks in the cache back to disk.
    
    The periodic-flush worker repeatedly sleeps for a
    specified amount of time (default 10 seconds) then
-   wakes up and flushes the cache. */
+   wakes up and flushes the free map and cache. */
 static void
 cache_periodic_flush (void *aux UNUSED)
 {

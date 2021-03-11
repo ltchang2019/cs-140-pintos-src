@@ -1,17 +1,17 @@
 #ifndef FILESYS_CACHE_H
 #define FILESYS_CACHE_H
 
+#include "filesys/inode.h"
 #include "devices/block.h"
 #include "threads/synch.h"
-#include "filesys/inode.h"
 
 /* Number of sectors that fit in the cache. */
 #define CACHE_SIZE 64
 
-/* Value indicating block not found in cache. */
+/* Error value indicating block not found in cache. */
 #define BLOCK_NOT_PRESENT SIZE_MAX
 
-/* Value indicating unused sector entry in block. */
+/* Error value indicating unused sector entry. */
 #define SECTOR_NOT_PRESENT SIZE_MAX
 
 /* Sector type to distinguish between inodes and data. */
@@ -44,7 +44,6 @@ struct inode_disk *cache_idx_to_inode_disk (size_t cache_idx);
 struct indir_block *cache_idx_to_indir_block (size_t cache_idx);
 struct cache_entry *cache_idx_to_cache_entry (size_t cache_idx);
 
-void cache_convert_to_exclusive_and_set_dirty (size_t cache_idx);
 void *cache_get_block_exclusive (block_sector_t sector, enum inode_type type);
 void *cache_get_block_shared (block_sector_t sector, enum inode_type type);
 void cache_exclusive_release (void *block_addr);

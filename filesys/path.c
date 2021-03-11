@@ -1,8 +1,8 @@
+#include "filesys/path.h"
 #include <debug.h>
 #include <stdio.h>
-#include "threads/malloc.h"
-#include "filesys/path.h"
 #include "filesys/filesys.h"
+#include "threads/malloc.h"
 
 /* Primarily called to open last parent subdirectory in a full 
    path. Converts string PATH to an open inode, which the caller 
@@ -32,8 +32,8 @@ path_to_inode (const char *path)
       const struct dir *const_dir = (const struct dir *) dir;
       const char *const_name = (const char *) token;
       
-      /* Synchronization in inode_read_at makes dir_lookup safe
-         in context of potentially searching for dir_entry being removed. */
+      /* Synchronization in inode_read_at makes dir_lookup safe in
+         context of potentially searching for dir_entry being removed. */
       if (dir_lookup (const_dir, const_name, &inode))
         {
           if (dir->inode->sector != ROOT_DIR_SECTOR)
@@ -80,6 +80,8 @@ extract_base (const char *path)
   if (base_len != 0)
     {
       base = malloc (sizeof (last_slash - path + 1));
+      if (base == NULL)
+        PANIC ("extract_base: malloc failed for base.");
       strlcpy (base, path, base_len + 1);
       base[base_len + 1] = '\0';
     }

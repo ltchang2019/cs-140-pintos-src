@@ -126,10 +126,8 @@ frame_alloc_page (enum palloc_flags flags, struct spte *spte)
     {
       /* Read the non-zero bytes of the page from the file on disk
          and zero the remaining bytes. */
-      // lock_acquire (&filesys_lock);
       off_t bytes_read = file_read_at (spte->file, f->page_kaddr,
                                        spte->page_bytes, spte->ofs);
-      // lock_release (&filesys_lock);
 
       /* If file read error, free page and return NULL. */
       if (bytes_read != (int) spte->page_bytes)
@@ -268,11 +266,7 @@ frame_evict_page (void)
       spte->loc = SWAP;
     }
   else if (spte->loc == MMAP && pagedir_is_dirty (t->pagedir, upage))
-    {
-      // lock_acquire (&filesys_lock);
-      file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
-      // lock_release (&filesys_lock);
-    }
+    file_write_at (spte->file, f->page_kaddr, spte->page_bytes, spte->ofs);
   
   /* Remove page mapping from owning thread to complete the eviction. */
   pagedir_clear_page (t->pagedir, spte->page_uaddr);
