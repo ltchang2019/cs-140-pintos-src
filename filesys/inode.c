@@ -373,10 +373,16 @@ inode_get_inumber (const struct inode *inode)
 void
 inode_close (struct inode *inode) 
 {
-  // printf ("INODE_CLOSE___\n");
   /* Ignore null pointer. */
   if (inode == NULL)
     return;
+
+  bool release = false;
+  if (!lock_held_by_current_thread (&inode->lock))
+    {
+      release = true;
+      lock_acquire (&inode->lock);
+    }
 
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0)
@@ -462,6 +468,11 @@ inode_close (struct inode *inode)
         }
 
       free (inode); 
+    }
+  else 
+    {
+      if (release)
+        lock_release (&inode->lock);
     }
 }
 
