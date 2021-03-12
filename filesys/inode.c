@@ -28,6 +28,9 @@ static bool add_new_block (struct inode_disk *i_data,
 static block_sector_t allocate_zeroed_block (struct inode_disk *inode_data, 
                                              off_t offset);
 static bool zero_fill_gap (struct inode_disk *inode_data, off_t write_pos);
+static off_t extend_write (struct inode_disk *inode_data, off_t offset,
+                           const uint8_t *buffer, off_t size, 
+                           off_t bytes_written);
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -641,39 +644,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
       if (sector_idx == SECTOR_NOT_PRESENT)
         {
-          /* Allocate a new disk sector. */
-          block_sector_t new_sector = 0;
-          if (!free_map_allocate (1, &new_sector))
-            {
-              cache_conditional_release (inode_block_addr, extend);
-              return bytes_written;
-            }
-
-          /* Get new disk sector into the cache. */
-          void *d_cache_block_addr = 
-            cache_get_block_exclusive (new_sector, DATA);
-
-          /* Calculate number of bytes to write. */
-          int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
-          int chunk = size < sector_left ? size : sector_left;
-
-          /* Write full or partial block of data to the new sector. */
-          memset (d_cache_block_addr, 0, BLOCK_SECTOR_SIZE);
-          memcpy (d_cache_block_addr + sector_ofs, 
-                  buffer + bytes_written, chunk);
-          cache_exclusive_release (d_cache_block_addr);
-
-          /* Write new sector number to inode_disk. */
-          if (!add_new_block (inode_data, new_sector, offset))
-            {
-              free_map_release (new_sector, 1);
-              cache_conditional_release (inode_block_addr, extend);
-              return bytes_written;
-            }
-
-          /* Update length of file in inode_disk. */
-          if (offset >= inode_data->length)
-            inode_data->length += chunk;
+          off_t chunk = extend_write (inode_data, offset, buffer, 
+                                      size, bytes_written);
+          if (chunk == 0)
+            return bytes_written;
 
           /* Advance. */
           size -= chunk;
@@ -766,6 +740,48 @@ zero_fill_gap (struct inode_disk *inode_data, off_t gap_size)
     }
   
   return true;
+}
+
+static off_t
+extend_write (struct inode_disk *inode_data, off_t offset, 
+              const uint8_t *buffer, off_t size, off_t bytes_written)
+{
+  /* Allocate a new disk sector. */
+  block_sector_t new_sector = 0;
+  if (!free_map_allocate (1, &new_sector))
+    {
+      cache_exclusive_release ((void *) inode_data);
+      return 0;
+    }
+
+  /* Get new disk sector into the cache. */
+  void *d_cache_block_addr = 
+    cache_get_block_exclusive (new_sector, DATA);
+
+  /* Calculate number of bytes to write. */
+  off_t sector_ofs = offset % BLOCK_SECTOR_SIZE;
+  int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
+  int chunk = size < sector_left ? size : sector_left;
+
+  /* Write full or partial block of data to the new sector. */
+  memset (d_cache_block_addr, 0, BLOCK_SECTOR_SIZE);
+  memcpy (d_cache_block_addr + sector_ofs, 
+          buffer + bytes_written, chunk);
+  cache_exclusive_release (d_cache_block_addr);
+
+  /* Write new sector number to inode_disk. */
+  if (!add_new_block (inode_data, new_sector, offset))
+    {
+      free_map_release (new_sector, 1);
+      cache_exclusive_release ((void *) inode_data);
+      return 0;
+    }
+
+  /* Update length of file in inode_disk. */
+  if (offset >= inode_data->length)
+    inode_data->length += chunk;
+
+  return chunk;
 }
 
 /* Disables writes to INODE.
