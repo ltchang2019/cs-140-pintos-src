@@ -16,7 +16,7 @@
 
 
 /* List of open inodes, so that opening a single inode twice
-   returns the same `struct inode'. */
+   returns the same `struct inode`. */
 static struct list open_inodes;
 
 /* Lock on open_inodes list. */
@@ -31,6 +31,17 @@ static bool zero_fill_gap (struct inode_disk *inode_data, off_t write_pos);
 static off_t extend_write (struct inode_disk *inode_data, off_t offset,
                            const uint8_t *buffer, off_t size, 
                            off_t bytes_written);
+static off_t normal_write (struct inode_disk *inode_data, block_sector_t sector,
+                           off_t offset, const uint8_t *buffer, off_t size, 
+                           off_t bytes_written, bool extend);
+
+/* Initializes the inode module. */
+void
+inode_init (void) 
+{
+  lock_init (&open_inodes_lock);
+  list_init (&open_inodes);
+}
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -102,17 +113,6 @@ byte_to_sector (const struct inode_disk *inode_data, off_t pos)
     }
   else
     return SECTOR_NOT_PRESENT;
-}
-
-/* Frees the cache slot corresponding to CACHE_IDX and
-   frees the disk sector corresponding to SECTOR. */
-static void
-free_disk_block (block_sector_t sector)
-{
-  ASSERT (sector != SECTOR_NOT_PRESENT);
-  
-  cache_free_slot (sector);
-  free_map_release (sector, 1);
 }
 
 /* Adds the sector number SECTOR of a newly allocated disk
@@ -232,14 +232,6 @@ add_new_block (struct inode_disk *inode_data, block_sector_t sector, off_t ofs)
     cache_exclusive_release (dii_block_addr);
     return true;
   }
-}
-
-/* Initializes the inode module. */
-void
-inode_init (void) 
-{
-  lock_init (&open_inodes_lock);
-  list_init (&open_inodes);
 }
 
 /* Initializes an inode with length LENGTH of uninitialized
@@ -457,6 +449,17 @@ inode_close (struct inode *inode)
     lock_conditional_release (&inode->lock, release);
 }
 
+/* Frees the cache slot corresponding to CACHE_IDX and
+   frees the disk sector corresponding to SECTOR. */
+static void
+free_disk_block (block_sector_t sector)
+{
+  ASSERT (sector != SECTOR_NOT_PRESENT);
+  
+  cache_free_slot (sector);
+  free_map_release (sector, 1);
+}
+
 /* Marks INODE to be deleted when it is closed by the last
    caller who has it open. */
 void
@@ -624,6 +627,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
         }
     }
   
+  /* If OFFSET > current file length, fill gap with zeroed blocks. */
   off_t initial_length = inode_data->length;
   off_t gap_size = offset - initial_length;
   if (offset > inode_data->length)
@@ -634,64 +638,41 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     }
     
 
-  /* Normal write after zero-extending. */
+  /* Write data bytes starting at OFFSET. */
   while (size > 0)
     {
-      /* Sector to write, starting byte offset within sector. Have exclusive
-         access on inode_disk in cache. */
+      /* Sector of block corresponding to file position OFFSET. */
       block_sector_t sector_idx = byte_to_sector (inode_data, offset);
-      int sector_ofs = offset % BLOCK_SECTOR_SIZE;
+      
+      off_t chunk = 0;
 
+      /* If sector not present, write/extend file. */
       if (sector_idx == SECTOR_NOT_PRESENT)
         {
-          off_t chunk = extend_write (inode_data, offset, buffer, 
+          chunk = extend_write (inode_data, offset, buffer, 
                                       size, bytes_written);
           if (chunk == 0)
             return bytes_written;
 
-          /* Advance. */
-          size -= chunk;
-          offset += chunk;
-          bytes_written += chunk;
         }
+      /* Otherwise, just perform normal write within file. */
       else
-        {
-          /* Get data block from cache. */
-          size_t cache_idx = cache_get_block (sector_idx, DATA);
-          struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
-          void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-          ce->dirty = true;
+         chunk = normal_write (inode_data, sector_idx, offset, 
+                               buffer, size, bytes_written, extend);
 
-          /* Calculate number of bytes to write. */
-          int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
-          int chunk = size < sector_left ? size : sector_left;
-
-          /* Write full or partial block of data to the sector. */
-          memcpy (cache_block_addr + sector_ofs, buffer + bytes_written, chunk);
-          rw_lock_shared_release (&ce->rw_lock);
-
-          /* Get inode_disk block of file from cache and update length
-             if write was beyond end of file in last sector. */
-          if (offset >= inode_data->length)
-            {
-              if (!extend)
-                cache_shared_to_exclusive (inode_block_addr);
-              inode_data->length += chunk;
-              if (!extend)
-                cache_exclusive_to_shared (inode_block_addr);
-            }
-
-          /* Advance. */
-          size -= chunk;
-          offset += chunk;
-          bytes_written += chunk;
-        }
+      /* Advance. */
+      size -= chunk;
+      offset += chunk;
+      bytes_written += chunk;
     }
   
   cache_conditional_release (inode_block_addr, extend);
   return bytes_written;
 }
 
+/* Called in inode_write_at to fill space between the file's initial 
+   length and the start pos of a write with zeros. Fills GAP_SIZE bytes 
+   with zeros starting at the file's initial length. */
 static bool
 zero_fill_gap (struct inode_disk *inode_data, off_t gap_size)
 {
@@ -742,6 +723,9 @@ zero_fill_gap (struct inode_disk *inode_data, off_t gap_size)
   return true;
 }
 
+/* Called in inode_write_at to perform an extending-write.
+   Allocates a new block, writes data to the block, and puts
+   new block's sector number in inode. */
 static off_t
 extend_write (struct inode_disk *inode_data, off_t offset, 
               const uint8_t *buffer, off_t size, off_t bytes_written)
@@ -781,6 +765,42 @@ extend_write (struct inode_disk *inode_data, off_t offset,
   if (offset >= inode_data->length)
     inode_data->length += chunk;
 
+  return chunk;
+}
+
+/* Called in inode_write_at to perform a non-extending write. 
+   Writes data from the buffer into the block at sector SECTOR. */
+static off_t
+normal_write (struct inode_disk *inode_data, block_sector_t sector,
+              off_t offset, const uint8_t *buffer, off_t size, 
+              off_t bytes_written, bool extend)
+{
+  /* Get data block from cache. */
+  size_t cache_idx = cache_get_block (sector, DATA);
+  struct cache_entry *ce = cache_idx_to_cache_entry (cache_idx);
+  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
+  ce->dirty = true;
+
+  /* Calculate number of bytes to write. */
+  off_t sector_ofs = offset % BLOCK_SECTOR_SIZE;
+  int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
+  int chunk = size < sector_left ? size : sector_left;
+
+  /* Write full or partial block of data to the sector. */
+  memcpy (cache_block_addr + sector_ofs, buffer + bytes_written, chunk);
+  rw_lock_shared_release (&ce->rw_lock);
+
+  /* Get inode_disk block of file from cache and update length
+      if write was beyond end of file in last sector. */
+  if (offset >= inode_data->length)
+    {
+      if (!extend)
+        cache_shared_to_exclusive ((void *) inode_data);
+      inode_data->length += chunk;
+      if (!extend)
+        cache_exclusive_to_shared ((void *) inode_data);
+    }
+  
   return chunk;
 }
 
