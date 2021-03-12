@@ -135,7 +135,10 @@ filesys_open (const char *path)
 
   struct inode *inode = path_to_inode (path_root);
   if (inode == NULL)
-    return NULL;
+    {
+      return NULL;
+    }
+  // printf ("FILESYS_OPEN: got inode \n");
   
   /* If directory already removed return false. */
   lock_acquire (&inode->lock);
@@ -146,6 +149,7 @@ filesys_open (const char *path)
     }
   lock_release (&inode->lock);
 
+  // printf ("FILESYS_OPEN: file_open\n");
   return file_open (inode);
 }
 

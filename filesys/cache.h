@@ -28,6 +28,7 @@ struct cache_entry
     block_sector_t sector_idx;  /* Sector number of disk location. */
     size_t cache_idx;           /* Index in the buffer cache. */
     bool dirty;                 /* Dirty flag for writes. */
+    bool accessed;              /* Flag for reads or writes. */
     struct rw_lock rw_lock;     /* Readers-writer lock. */
   };
 
@@ -48,6 +49,10 @@ void *cache_get_block_exclusive (block_sector_t sector, enum inode_type type);
 void *cache_get_block_shared (block_sector_t sector, enum inode_type type);
 void cache_exclusive_release (void *block_addr);
 void cache_shared_release (void *block_addr);
+
+void cache_shared_to_exclusive (void *block_addr);
+void cache_exclusive_to_shared (void *block_addr);
+void cache_conditional_release (void *block_addr, bool exclusive);
 
 void cache_init (void);
 size_t cache_get_block (block_sector_t sector, enum sector_type type);

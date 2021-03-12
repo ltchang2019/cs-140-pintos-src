@@ -503,12 +503,12 @@ rw_lock_init (struct rw_lock *rw_lock)
 {
   lock_init (&rw_lock->lock);
   cond_init (&rw_lock->cond);
-  list_init (&rw_lock->active_readers);
-  list_init (&rw_lock->waiting_readers);
-  list_init (&rw_lock->waiting_writers);
-  rw_lock->writer = NULL;
+  rw_lock->active_readers = 0;
+  rw_lock->waiting_readers = 0;
+  rw_lock->waiting_writers = 0;
   rw_lock->consec_readers = 0;
   rw_lock->consec_writers = 0;
+  rw_lock->writer = NULL;
 }
 
 /* Acquires RW_LOCK as a reader, sleeping until it becomes available
@@ -522,18 +522,23 @@ void
 rw_lock_shared_acquire (struct rw_lock *rw_lock)
 {  
   lock_acquire (&rw_lock->lock);
-  list_push_back (&rw_lock->waiting_readers, &thread_current ()->rw_elem);
-  while (rw_lock->writer != NULL || 
-         (rw_lock->consec_readers >= 6 && 
-         !list_empty (&rw_lock->waiting_writers)))
-    cond_wait (&rw_lock->cond, &rw_lock->lock);
+  rw_lock->waiting_readers++;
 
+  // printf ("Writer: %p\n", rw_lock->writer);
+  // printf ("Consec readers: %d\n", rw_lock->consec_readers);
+  // printf ("Waiting writers: %d\n", rw_lock->waiting_writers);
+
+  while (rw_lock->writer != NULL || 
+         (rw_lock->consec_readers >= 5 && 
+         rw_lock->waiting_writers > 0))
+    cond_wait (&rw_lock->cond, &rw_lock->lock);
+  
   if (rw_lock->consec_writers > 0)
     rw_lock->consec_writers = 0;
   rw_lock->consec_readers++;
 
-  list_remove (&thread_current ()->rw_elem);
-  list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
+  rw_lock->waiting_readers--;
+  rw_lock->active_readers++;
   lock_release (&rw_lock->lock);
 }
 
@@ -543,13 +548,14 @@ bool
 rw_lock_shared_try_acquire (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
-  if (rw_lock->writer != NULL || !list_empty (&rw_lock->waiting_writers))
+  
+  if (rw_lock->writer != NULL || rw_lock->waiting_writers > 0)
     {
       lock_release (&rw_lock->lock);
       return false;
     }
 
-  list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
+  rw_lock->active_readers++;
   lock_release (&rw_lock->lock);
   return true;
 }
@@ -561,10 +567,9 @@ void
 rw_lock_shared_release (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
-  //ASSERT (current_thread_is_reader (rw_lock));
 
-  list_remove (&thread_current ()->rw_elem);
-  if (list_empty (&rw_lock->active_readers))
+  rw_lock->active_readers--;
+  if (rw_lock->active_readers == 0)
     cond_broadcast (&rw_lock->cond, &rw_lock->lock);
 
   lock_release (&rw_lock->lock);
@@ -577,14 +582,13 @@ void
 rw_lock_shared_to_exclusive (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
-  //ASSERT (current_thread_is_reader (rw_lock));
 
-  list_remove (&thread_current ()->rw_elem);
-  list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
-  while (!list_empty (&rw_lock->active_readers))
+  rw_lock->active_readers--;
+  rw_lock->waiting_writers++;
+  while (rw_lock->active_readers > 0 || rw_lock->writer != NULL)
     cond_wait (&rw_lock->cond, &rw_lock->lock);
 
-  list_remove (&thread_current ()->rw_elem);
+  rw_lock->waiting_writers--;
   rw_lock->writer = thread_current ();
   lock_release (&rw_lock->lock);
 }
@@ -601,18 +605,18 @@ rw_lock_exclusive_acquire (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
   
-  list_push_back (&rw_lock->waiting_writers, &thread_current ()->rw_elem);
+  rw_lock->waiting_writers++;
   while (rw_lock->writer != NULL ||
-         !list_empty (&rw_lock->active_readers) || 
-         (rw_lock->consec_writers >= 2 && 
-         !list_empty (&rw_lock->waiting_readers)))
+         rw_lock->active_readers > 0 || 
+         (rw_lock->consec_writers >= 10 && 
+         rw_lock->waiting_readers > 0))
     cond_wait (&rw_lock->cond, &rw_lock->lock);
 
   if(rw_lock->consec_readers > 0)
     rw_lock->consec_readers = 0;
   rw_lock->consec_writers++;
 
-  list_remove (&thread_current ()->rw_elem);
+  rw_lock->waiting_writers--;
   rw_lock->writer = thread_current ();
   lock_release (&rw_lock->lock);
 }
@@ -642,25 +646,8 @@ rw_lock_exclusive_to_shared (struct rw_lock *rw_lock)
   ASSERT (current_thread_is_writer (rw_lock));
 
   rw_lock->writer = NULL;
-  list_push_back (&rw_lock->active_readers, &thread_current ()->rw_elem);
+  rw_lock->active_readers++;
   lock_release (&rw_lock->lock);
-}
-
-/* Returns true if current thread is reader for RW_LOCK and false if 
-   otherwise. */
-bool
-current_thread_is_reader (struct rw_lock *rw_lock)
-{
-  struct list_elem *e;
-  for (e = list_begin (&rw_lock->active_readers);
-       e != list_end (&rw_lock->active_readers); e = list_next (e))
-    {
-      struct thread *t = list_entry (e, struct thread, rw_elem);
-      if (t == thread_current ())
-        return true;
-    }
-
-  return false;
 }
 
 /* Returns true if current thread is writer for RW_LOCK and false if 
