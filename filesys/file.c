@@ -11,6 +11,7 @@
 struct file *
 file_open (struct inode *inode) 
 {
+  // printf ("___________________FILE_OPEN______________________\n");
   struct file *file = calloc (1, sizeof *file);
   off_t pos = inode->type == DIR ? DIR_OFFSET : 0;
   if (inode != NULL && file != NULL)

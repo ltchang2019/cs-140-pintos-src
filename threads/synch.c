@@ -549,7 +549,7 @@ rw_lock_shared_try_acquire (struct rw_lock *rw_lock)
 {
   lock_acquire (&rw_lock->lock);
   
-  if (rw_lock->writer != NULL || rw_lock->waiting_writers > 0)
+  if (rw_lock->writer != NULL)
     {
       lock_release (&rw_lock->lock);
       return false;

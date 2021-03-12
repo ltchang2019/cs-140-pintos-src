@@ -15,6 +15,9 @@ static struct bitmap *cache_bitmap;
 static struct lock eviction_lock;
 
 /* Clock hand and timeout for the eviction algorithm. */
+static struct cache_entry *lagging_hand;
+static struct cache_entry *leading_hand;
+
 static struct cache_entry *clock_hand;
 static size_t clock_timeout;
 
@@ -147,7 +150,8 @@ cache_init (void)
     }
 
   /* Initialize clock hand and timeout for eviction algorithm. */
-  clock_hand = cache_metadata + (CACHE_SIZE / 4);
+  lagging_hand = cache_metadata;
+  leading_hand = cache_metadata + (CACHE_SIZE / 4);
   clock_timeout = 0;
 
   /* Initialize list and semaphore for read-ahead worker thread. */
@@ -252,8 +256,11 @@ cache_flush (void)
 static void
 clock_advance (void)
 {
-  if (++clock_hand >= cache_metadata + CACHE_SIZE)
-    clock_hand = cache_metadata;
+  leading_hand->dirty = false;
+  if (++lagging_hand >= cache_metadata + CACHE_SIZE)
+    lagging_hand = cache_metadata;
+  if (++leading_hand >= cache_metadata + CACHE_SIZE)
+    leading_hand = cache_metadata;
 }
 
 /* Find a block in the cache to evict using the clock
@@ -275,14 +282,13 @@ clock_find (void)
 
   while (true)
     {
-      if (rw_lock_shared_try_acquire (&clock_hand->rw_lock))
+      if (rw_lock_shared_try_acquire (&lagging_hand->rw_lock))
         {
-          if (clock_hand->type == DATA || clock_timeout == CACHE_SIZE)
+          if (!lagging_hand->dirty)
             {
               rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
               size_t cache_idx = clock_hand->cache_idx;
               clock_advance ();
-              clock_timeout = 0;
               
               return cache_idx;
             }
@@ -291,7 +297,6 @@ clock_find (void)
         
       /* Advance clock hand. */
       clock_advance ();
-      clock_timeout++;
     }
 
   NOT_REACHED ();
