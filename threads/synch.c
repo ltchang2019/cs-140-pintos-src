@@ -530,8 +530,12 @@ rw_lock_shared_acquire (struct rw_lock *rw_lock)
   lock_acquire (&rw_lock->lock);
   rw_lock->waiting_readers++;
 
+  // printf ("Writer: %p\n", rw_lock->writer);
+  // printf ("Consec readers: %d\n", rw_lock->consec_readers);
+  // printf ("Waiting writers: %d\n", rw_lock->waiting_writers);
+
   while (rw_lock->writer != NULL || 
-         (rw_lock->consec_readers >= 6 && 
+         (rw_lock->consec_readers >= 5 && 
          rw_lock->waiting_writers > 0))
     cond_wait (&rw_lock->cond, &rw_lock->lock);
   
@@ -608,7 +612,7 @@ rw_lock_exclusive_acquire (struct rw_lock *rw_lock)
   rw_lock->waiting_writers++;
   while (rw_lock->writer != NULL ||
          rw_lock->active_readers > 0 || 
-         (rw_lock->consec_writers >= 2 && 
+         (rw_lock->consec_writers >= 10 && 
          rw_lock->waiting_readers > 0))
     cond_wait (&rw_lock->cond, &rw_lock->lock);
 

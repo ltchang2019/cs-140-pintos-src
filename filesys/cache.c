@@ -13,6 +13,7 @@ static struct bitmap *cache_bitmap;
 
 /* Lock for mutual exclusion on block eviction. */
 static struct lock eviction_lock;
+static struct condition eviction_cond;
 
 /* Clock hand and timeout for the eviction algorithm. */
 static struct cache_entry *lagging_hand;
@@ -136,6 +137,7 @@ cache_init (void)
 
   /* Initialize eviction_lock. */
   lock_init (&eviction_lock);
+  cond_init (&eviction_cond);
 
   /* Initialize fields for each cache_entry. */
   for (size_t idx = 0; idx < CACHE_SIZE; idx++)
@@ -269,13 +271,13 @@ clock_find (void)
 
   while (true)
     {
-      // printf ("CLOCK_FIND: try acquiring...\n");
+      printf ("CLOCK_FIND: try acquiring...\n");
       if (rw_lock_shared_try_acquire (&lagging_hand->rw_lock))
         {
-          // printf ("CLOCK_FIND: acquired. checking lagging hand dirty....\n");
+          printf ("CLOCK_FIND: acquired. checking lagging hand dirty....\n");
           if (!lagging_hand->accessed && lagging_hand->rw_lock.active_readers < 2)
             {
-              // printf ("Num Readers: %d\n", lagging_hand->rw_lock.active_readers);
+              printf ("Num Readers: %d\n", lagging_hand->rw_lock.active_readers);
               rw_lock_shared_to_exclusive (&lagging_hand->rw_lock);
               size_t cache_idx = lagging_hand->cache_idx;
               
@@ -374,31 +376,34 @@ cache_load (block_sector_t sector)
 {
   size_t cache_idx;
   struct cache_entry *ce;
-  // printf ("WAITING ON EVICTION LOCK...\n");
+  
+  printf ("CACHE_LOAD: process %d waiting on eviction lock\n", thread_current ()->tid);
   lock_acquire (&eviction_lock);
+  printf ("CACHE_LOAD: process %d GOT eviction lock\n", thread_current ()->tid);
 
   /* Block already in cache, so just return the cache_idx. */
+  printf ("CACHE_LOAD: process %d searching block\n", thread_current ()->tid);
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
     {
       
       lock_release (&eviction_lock);
-      // printf ("RELEASED EVICTION_LOCK after SUCCESSFUL GET\n");
+      // printf ("CACHE_LOAD: process %d RELEASING eviction lock\n", thread_current ()->tid);
       return cache_idx;
     }
 
+  printf ("CACHE_LOAD: process %d searching bitmap\n", thread_current ()->tid);
   /* Block not in cache, so find a free slot and load it in. */
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
 
+  printf ("CACHE_LOAD: try to acquire bitmap block\n");
   /* A free cache slot is available, so obtain the rw_lock on
      the cache_entry and set the sector_idx field. */
-  if (cache_idx != BITMAP_ERROR)
+  ce = cache_metadata + cache_idx;
+  if (cache_idx != BITMAP_ERROR && 
+      rw_lock_shared_try_acquire (&ce->rw_lock))
     {
-      ce = cache_metadata + cache_idx;
-      // printf ("SHARED_ACQUIRING NEW ALLOCATED BLOCK\n");
-      rw_lock_shared_acquire (&ce->rw_lock);
       lock_release (&eviction_lock);
-
       void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
       block_read (fs_device, sector, cache_block_addr);
       return cache_idx;
@@ -411,6 +416,7 @@ cache_load (block_sector_t sector)
      be evicted by another process. */
   // printf ("EVICTING BLOCK\n");
   cache_idx = cache_evict_block ();
+  printf ("CACHE_LOAD: process %d RELEASING eviction lock\n", thread_current ()->tid);
   lock_release (&eviction_lock);
 
   void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);

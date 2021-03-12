@@ -487,6 +487,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       /* Disk sector to read, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode_data, offset);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
+      // printf ("INODE_READ_AT: got byte to sector\n");
 
       /* Offset is in file but there is no corresponding sector,
          which means that we now need to explicitly allocate a
@@ -519,9 +520,10 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
           return bytes_read;
         }
 
-      // printf ("FAIL?\n");
+      // printf ("INODE_READ_AT: getting cache block\n");
       /* Get data block from cache. */
       void *cache_block_addr = cache_get_block_shared (sector_idx, DATA);
+      // printf ("INODE_READ_AT: got cache block\n");
       
       /* Read full or partial block of data. */
       memcpy (buffer + bytes_read, cache_block_addr + sector_ofs, chunk);
