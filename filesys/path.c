@@ -48,9 +48,9 @@ path_to_inode (const char *path)
   return inode;
 }
 
-/* Gets the starting directory for a path to inode conversion. 
-   If first char isn't a slash, we use our cwd as starting point
-   for conversion. */
+/* Gets the starting directory for a path to inode
+   conversion. If first char isn't a slash, we use our
+   cwd as starting point for conversion. */
 struct dir *
 get_start_dir (const char *path)
 {

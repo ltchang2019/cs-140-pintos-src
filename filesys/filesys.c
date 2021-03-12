@@ -47,8 +47,8 @@ filesys_init (bool format)
   thread_current ()->cwd_inode = inode_open (ROOT_DIR_SECTOR);
 }
 
-/* Shuts down the file system module, writing any unwritten
-   data to disk. */
+/* Shuts down the file system module, writing the free map
+   and any unwritten data to disk. */
 void
 filesys_done (void) 
 {
@@ -138,7 +138,6 @@ filesys_open (const char *path)
     {
       return NULL;
     }
-  // printf ("FILESYS_OPEN: got inode \n");
   
   /* If directory already removed return false. */
   lock_acquire (&inode->lock);
@@ -149,7 +148,6 @@ filesys_open (const char *path)
     }
   lock_release (&inode->lock);
 
-  // printf ("FILESYS_OPEN: file_open\n");
   return file_open (inode);
 }
 

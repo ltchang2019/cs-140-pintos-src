@@ -304,8 +304,8 @@ clock_find (void)
             {
               rw_lock_shared_to_exclusive (&lagging_hand->rw_lock);
               size_t cache_idx = lagging_hand->cache_idx;
-              
               clock_advance ();
+
               return cache_idx;
             }
           rw_lock_shared_release (&lagging_hand->rw_lock);
@@ -318,9 +318,9 @@ clock_find (void)
   NOT_REACHED ();
 }
 
-/* Advance the hand of the clock algorithm by one cache
+/* Advance the hands of the clock algorithm by one cache
    slot, wrapping around to the first slot if the end of
-   the cache is reached. */
+   the cache is reached for either hand. */
 static void
 clock_advance (void)
 {
@@ -354,6 +354,7 @@ cache_evict_block (void)
   /* Clear appropriate fields in cache_entry. */
   ce->sector_idx = SECTOR_NOT_PRESENT;
   ce->dirty = false;
+  ce->accessed = false;
 
   /* Atomically convert exclusive_acquire on rw_lock to
      shared_acquire so that all paths through cache_load()
@@ -381,7 +382,7 @@ cache_find_block (block_sector_t sector)
             cond_wait (&eviction_cond, &eviction_lock);
 
           /* If block still contains correct disk sector,
-             return given cache idx. Else, restart search. */
+             return given cache_idx. Else, restart search. */
           if (ce->sector_idx == sector)
             return ce->cache_idx;
           else
@@ -404,33 +405,26 @@ cache_load (block_sector_t sector)
 {
   size_t cache_idx;
   struct cache_entry *ce;
-
   lock_acquire (&eviction_lock);
-  // printf ("CACHE_LOAD: process %d GOT eviction lock\n", thread_current ()->tid);
 
   /* Block already in cache, so just return the cache_idx. */
-  // printf ("CACHE_LOAD: process %d searching block\n", thread_current ()->tid);
   cache_idx = cache_find_block (sector);
   if (cache_idx != BLOCK_NOT_PRESENT)
     {
       cond_broadcast (&eviction_cond, &eviction_lock);
       lock_release (&eviction_lock);
-
       return cache_idx;
     }
 
-  // printf ("CACHE_LOAD: process %d searching bitmap\n", thread_current ()->tid);
   /* Block not in cache, so find a free slot and load it in. */
   cache_idx = bitmap_scan_and_flip (cache_bitmap, 0, 1, false);
 
-  // printf ("CACHE_LOAD: try to acquire bitmap block\n");
   /* A free cache slot is available, so obtain the rw_lock on
      the cache_entry and set the sector_idx field. */
   ce = cache_metadata + cache_idx;
   if (cache_idx != BITMAP_ERROR && 
       rw_lock_shared_try_acquire (&ce->rw_lock))
     {
-      ce = cache_metadata + cache_idx;
       cond_broadcast (&eviction_cond, &eviction_lock);
       lock_release (&eviction_lock);
 
@@ -445,7 +439,6 @@ cache_load (block_sector_t sector)
      returned cache slot, ensuring that the block will not
      be evicted by another process. */
   cache_idx = cache_evict_block ();
-  // printf ("CACHE_LOAD: process %d RELEASING eviction lock\n", thread_current ()->tid);
   cond_broadcast (&eviction_cond, &eviction_lock);
   lock_release (&eviction_lock);
 
@@ -491,7 +484,6 @@ cache_read_ahead (void *aux UNUSED)
 
       /* Deallocate memory for sector elem. */
       free (se);
-      se = NULL;
     }
 }
 
