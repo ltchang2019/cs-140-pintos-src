@@ -149,13 +149,13 @@ filesys_open (const char *path)
   if (strlen (hack) == 0)
     return NULL;
 
-  printf ("FILESYS_OPEN: getting path to inode\n");
+  // printf ("FILESYS_OPEN: getting path to inode\n");
   struct inode *inode = path_to_inode ((char *) hack);
   if (inode == NULL)
     {
       return NULL;
     }
-  printf ("FILESYS_OPEN: got inode \n");
+  // printf ("FILESYS_OPEN: got inode \n");
   
   /* If directory already removed return false. */
   lock_acquire (&inode->lock);
@@ -166,7 +166,7 @@ filesys_open (const char *path)
     }
   lock_release (&inode->lock);
 
-  printf ("FILESYS_OPEN: file_open\n");
+  // printf ("FILESYS_OPEN: file_open\n");
   return file_open (inode);
 }
 
