@@ -35,58 +35,54 @@ byte_to_sector (const struct inode_disk *inode_data, off_t pos)
   off_t inode_data_block_num = pos / BLOCK_SECTOR_SIZE;
 
   if (inode_data_block_num < NUM_DIRECT)
-    {
-      block_sector_t sector = inode_data->sectors[inode_data_block_num];
-      return sector;
-    }
+    return inode_data->sectors[inode_data_block_num];
   else if (inode_data_block_num < NUM_DIR_INDIR)
     {
-      /* Get indirect block from cache, since POS refers to a
-         byte beyond the data that the direct block (inode_disk)
-         can point to. */
-      block_sector_t i_sector = inode_data->sectors[INDIR];
+      /* Get indirect block from cache. */
+      block_sector_t indir_sector = inode_data->sectors[INDIR];
 
       /* Indirect block not yet allocated. */
-      if (i_sector == SECTOR_NOT_PRESENT)
+      if (indir_sector == SECTOR_NOT_PRESENT)
         return SECTOR_NOT_PRESENT;
 
-      void *i_cache_block_addr = cache_get_block_shared (i_sector, DATA);
-      struct indir_block *i_block = (struct indir_block *) i_cache_block_addr;
+      /* Load indirect block into cache. */
+      void *indir_block_addr = cache_get_block_shared (indir_sector, DATA);
+      struct indir_block *indir_block = (struct indir_block *) indir_block_addr;
 
+      /* Return sector number in indirect block. */
       off_t indir_idx = inode_data_block_num - NUM_DIRECT;
-      block_sector_t sector = i_block->sectors[indir_idx];
-      cache_shared_release (i_cache_block_addr);
+      block_sector_t sector = indir_block->sectors[indir_idx];
+      cache_shared_release (indir_block_addr);
       return sector;
     }
   else if (inode_data_block_num < NUM_FILE_MAX)
     {
-      /* Get doubly indirect block from cache, since POS refers to
-         a byte beyond the data that the direct block and indirect
-         block can point to. */
-      block_sector_t di_sector = inode_data->sectors[DOUBLE_INDIR];
+      /* Get doubly indirect block from cache. */
+      block_sector_t d_indir_sector = inode_data->sectors[DOUBLE_INDIR];
 
       /* Doubly indirect block not yet allocated. */
-      if (di_sector == SECTOR_NOT_PRESENT)
+      if (d_indir_sector == SECTOR_NOT_PRESENT)
         return SECTOR_NOT_PRESENT;
 
-      void *di_cache_block_addr = cache_get_block_shared (di_sector, DATA);
-      struct indir_block *di_block = (struct indir_block *) di_cache_block_addr;
+      void *d_indir_block_addr = cache_get_block_shared (d_indir_sector, DATA);
+      struct indir_block *d_indir_block = 
+        (struct indir_block *) d_indir_block_addr;
 
       /* Get correct indirect block in doubly indirect block. */
-      off_t doubly_indir_idx = (inode_data_block_num - NUM_DIR_INDIR) / NUM_INDIRECT;
-      block_sector_t i_sector = di_block->sectors[doubly_indir_idx];
-      cache_shared_release (di_cache_block_addr);
+      off_t d_indir_idx = (inode_data_block_num - NUM_DIR_INDIR) / NUM_INDIRECT;
+      block_sector_t indir_sector = d_indir_block->sectors[d_indir_idx];
+      cache_shared_release (d_indir_block_addr);
 
       /* Indirect block in doubly indirect block not yet allocated. */
-      if (i_sector == SECTOR_NOT_PRESENT)
+      if (indir_sector == SECTOR_NOT_PRESENT)
         return SECTOR_NOT_PRESENT;
 
-      void *i_cache_block_addr = cache_get_block_shared (i_sector, DATA);
-      struct indir_block *i_block = (struct indir_block *) i_cache_block_addr;
+      void *indir_block_addr = cache_get_block_shared (indir_sector, DATA);
+      struct indir_block *indir_block = (struct indir_block *) indir_block_addr;
 
       off_t indir_idx = (inode_data_block_num - NUM_DIR_INDIR) % NUM_INDIRECT;
-      block_sector_t sector = i_block->sectors[indir_idx];
-      cache_shared_release (i_cache_block_addr);
+      block_sector_t sector = indir_block->sectors[indir_idx];
+      cache_shared_release (indir_block_addr);
 
       return sector;
     }
