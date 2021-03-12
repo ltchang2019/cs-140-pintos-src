@@ -94,28 +94,6 @@ cache_idx_to_cache_block_addr (size_t cache_idx)
   return cache + (cache_idx * BLOCK_SECTOR_SIZE);
 }
 
-/* Translates CACHE_IDX into an inode_disk struct.
-
-   Should only be called when CACHE_IDX's corresponding
-   block contains an inode_disk. */
-struct inode_disk *
-cache_idx_to_inode_disk (size_t cache_idx)
-{
-  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-  return (struct inode_disk *) cache_block_addr;
-}
-
-/* Translates CACHE_IDX into an indir_block struct.
-
-   Should only be called when CACHE_IDX's corresponding
-   block contains an indir_block. */
-struct indir_block *
-cache_idx_to_indir_block (size_t cache_idx)
-{
-  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-  return (struct indir_block *) cache_block_addr;
-}
-
 /* Translates CACHE_IDX into address of the corresponding
    cache_entry in the cache_metadata. */
 struct cache_entry *

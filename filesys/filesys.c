@@ -198,7 +198,6 @@ filesys_remove (const char *path)
           return false;
         }
     }
-  lock_release (&to_remove_inode->lock);
 
   /* If base == NULL, no slashes so use cwd. Else, open last
      subdirectory of base. */

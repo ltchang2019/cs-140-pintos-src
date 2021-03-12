@@ -362,7 +362,7 @@ inode_close (struct inode *inode)
         {
           /* Get inode_disk block from cache. */
           void *inode_block_addr = 
-            cache_get_block_shared (inode->sector, INODE);
+            cache_get_block_exclusive (inode->sector, INODE);
           struct inode_disk *inode_data = 
             (struct inode_disk *) inode_block_addr;
 
@@ -379,10 +379,8 @@ inode_close (struct inode *inode)
             {
               /* Get indirect block from cache. */
               block_sector_t i_sector = inode_data->sectors[INDIR];
-              size_t i_cache_idx = cache_get_block (i_sector, DATA);
-              void *indir_b = cache_idx_to_cache_block_addr (i_cache_idx);
-              struct indir_block *i_block = 
-                cache_idx_to_indir_block (i_cache_idx);
+              void *i_block_addr = cache_get_block_exclusive (i_sector, DATA);
+              struct indir_block *i_block = (struct indir_block *) i_block_addr;
 
               for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
                 {
@@ -392,7 +390,7 @@ inode_close (struct inode *inode)
                 }
               
               /* Free the indirect block. */
-              cache_shared_release (indir_b);
+              cache_exclusive_release (i_block_addr);
               free_disk_block (i_sector);
             }
          
@@ -401,10 +399,9 @@ inode_close (struct inode *inode)
             {
               /* Get doubly indirect block from cache. */
               block_sector_t di_sector = inode_data->sectors[DOUBLE_INDIR];
-              size_t d_cache_idx = cache_get_block (di_sector, DATA);
-              void *d_indir_b = cache_idx_to_cache_block_addr (d_cache_idx);
+              void *di_block_addr = cache_get_block_exclusive (di_sector, DATA);
               struct indir_block *di_block = 
-                cache_idx_to_indir_block (d_cache_idx);
+                (struct indir_block *) di_block_addr;
 
               /* Iterate through indirect blocks of doubly indirect block. */
               for (size_t d_idx = 0; d_idx < NUM_INDIRECT; d_idx++)
@@ -413,33 +410,32 @@ inode_close (struct inode *inode)
                     continue;
                     
                   /* Get indirect block from cache. */
-                  block_sector_t i_sector = di_block->sectors[d_idx];
-                  size_t di_cache_idx = cache_get_block (i_sector, DATA);
-                  void *di_indir_b = 
-                    cache_idx_to_cache_block_addr (di_cache_idx);
-                  struct indir_block *i_block = 
-                    cache_idx_to_indir_block (di_cache_idx);
+                  block_sector_t dii_sector = di_block->sectors[d_idx];
+                  void *dii_block_addr = 
+                    cache_get_block_exclusive (dii_sector, DATA);
+                  struct indir_block *dii_block = 
+                    (struct indir_block *) dii_block_addr;
 
                   /* Free data blocks pointed to by indirect block. */
                   for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
                     {
-                      block_sector_t sector = i_block->sectors[idx];
+                      block_sector_t sector = dii_block->sectors[idx];
                       if (sector != SECTOR_NOT_PRESENT)
                         free_disk_block (sector);
                     }
                   
                   /* Free the indirect block. */
-                  cache_shared_release (di_indir_b);
-                  free_disk_block (i_sector);
+                  cache_exclusive_release (dii_block_addr);
+                  free_disk_block (dii_sector);
                 }
             
               /* Free the doubly indirect block. */
-              cache_shared_release (d_indir_b);
+              cache_exclusive_release (di_block_addr);
               free_disk_block (di_sector);
             }
 
           /* Free the direct block (inode_disk). */
-          cache_shared_release (inode_data);
+          cache_exclusive_release (inode_data);
           free_disk_block (inode->sector);
         }
 

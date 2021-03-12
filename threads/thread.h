@@ -129,7 +129,6 @@ struct thread
 #endif
 
 #ifdef FILESYS
-   struct list_elem rw_elem;
    struct inode *cwd_inode;
 #endif
 
