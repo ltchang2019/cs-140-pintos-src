@@ -144,6 +144,7 @@ cache_init (void)
       ce->sector_idx = SECTOR_NOT_PRESENT;
       ce->cache_idx = idx;
       ce->dirty = false;
+      ce->accessed = false;
       rw_lock_init (&ce->rw_lock);
     }
 
@@ -199,6 +200,7 @@ cache_get_block (block_sector_t sector, enum sector_type type)
   struct cache_entry *ce = cache_metadata + cache_idx;
   ce->type = type;
   ce->sector_idx = sector;
+  ce->accessed = true;
 
   return cache_idx;
 }
@@ -267,20 +269,17 @@ clock_find (void)
 
   while (true)
     {
-      // printf ("CLOCK_FIND: setting dirty false\n");
-      leading_hand->dirty = false;
-
       // printf ("CLOCK_FIND: try acquiring...\n");
       if (rw_lock_shared_try_acquire (&lagging_hand->rw_lock))
         {
           // printf ("CLOCK_FIND: acquired. checking lagging hand dirty....\n");
-          if (!lagging_hand->dirty)
+          if (!lagging_hand->accessed && lagging_hand->rw_lock.active_readers < 2)
             {
-              // printf ("CLOCK_FIND: lagging hand NOT dirty\n");
+              // printf ("Num Readers: %d\n", lagging_hand->rw_lock.active_readers);
               rw_lock_shared_to_exclusive (&lagging_hand->rw_lock);
               size_t cache_idx = lagging_hand->cache_idx;
-              clock_advance ();
               
+              clock_advance ();
               return cache_idx;
             }
           rw_lock_shared_release (&lagging_hand->rw_lock);
@@ -303,6 +302,8 @@ clock_advance (void)
     lagging_hand = cache_metadata;
   if (++leading_hand >= cache_metadata + CACHE_SIZE)
     leading_hand = cache_metadata;
+  
+  leading_hand->accessed = false;
 }
 
 /* Evicts a block from a cache slot it is in and returns

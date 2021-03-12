@@ -28,6 +28,7 @@ struct cache_entry
     block_sector_t sector_idx;  /* Sector number of disk location. */
     size_t cache_idx;           /* Index in the buffer cache. */
     bool dirty;                 /* Dirty flag for writes. */
+    bool accessed;              /* Flag for reads or writes. */
     struct rw_lock rw_lock;     /* Readers-writer lock. */
   };
 
