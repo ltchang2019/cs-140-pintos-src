@@ -17,8 +17,6 @@ static struct lock eviction_lock;
 /* Clock hand and timeout for the eviction algorithm. */
 static struct cache_entry *lagging_hand;
 static struct cache_entry *leading_hand;
-
-static struct cache_entry *clock_hand;
 static size_t clock_timeout;
 
 /* A semaphore to signal the read-ahead worker thread. */
@@ -250,19 +248,6 @@ cache_flush (void)
     }
 }
 
-/* Advance the hand of the clock algorithm by one cache
-   slot, wrapping around to the first slot if the end of
-   the cache is reached. */
-static void
-clock_advance (void)
-{
-  leading_hand->dirty = false;
-  if (++lagging_hand >= cache_metadata + CACHE_SIZE)
-    lagging_hand = cache_metadata;
-  if (++leading_hand >= cache_metadata + CACHE_SIZE)
-    leading_hand = cache_metadata;
-}
-
 /* Find a block in the cache to evict using the clock
    algorithm. Returns the cache_idx of the slot occupied
    by the block to be evicted.
@@ -282,17 +267,23 @@ clock_find (void)
 
   while (true)
     {
+      // printf ("CLOCK_FIND: setting dirty false\n");
+      leading_hand->dirty = false;
+
+      // printf ("CLOCK_FIND: try acquiring...\n");
       if (rw_lock_shared_try_acquire (&lagging_hand->rw_lock))
         {
+          // printf ("CLOCK_FIND: acquired. checking lagging hand dirty....\n");
           if (!lagging_hand->dirty)
             {
-              rw_lock_shared_to_exclusive (&clock_hand->rw_lock);
-              size_t cache_idx = clock_hand->cache_idx;
+              // printf ("CLOCK_FIND: lagging hand NOT dirty\n");
+              rw_lock_shared_to_exclusive (&lagging_hand->rw_lock);
+              size_t cache_idx = lagging_hand->cache_idx;
               clock_advance ();
               
               return cache_idx;
             }
-          rw_lock_shared_release (&clock_hand->rw_lock);
+          rw_lock_shared_release (&lagging_hand->rw_lock);
         }
         
       /* Advance clock hand. */
@@ -300,6 +291,18 @@ clock_find (void)
     }
 
   NOT_REACHED ();
+}
+
+/* Advance the hand of the clock algorithm by one cache
+   slot, wrapping around to the first slot if the end of
+   the cache is reached. */
+static void
+clock_advance (void)
+{
+  if (++lagging_hand >= cache_metadata + CACHE_SIZE)
+    lagging_hand = cache_metadata;
+  if (++leading_hand >= cache_metadata + CACHE_SIZE)
+    leading_hand = cache_metadata;
 }
 
 /* Evicts a block from a cache slot it is in and returns
