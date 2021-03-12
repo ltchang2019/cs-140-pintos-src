@@ -63,7 +63,12 @@ filesys_done (void)
    or if internal memory allocation fails. */
 bool
 filesys_create (const char *path, off_t initial_size, enum inode_type type)
-{   
+{
+  /* Remove double slashes. */
+  char *path_root = remove_leading_slashes (path);
+  if (strlen (path_root) == 0)
+    return NULL;
+    
   /* Extract base and file/directory name. */
   char *base = extract_base (path);
   char *name = extract_name (path);
@@ -126,13 +131,12 @@ filesys_create (const char *path, off_t initial_size, enum inode_type type)
 struct file *
 filesys_open (const char *path)
 {
-  char *path_root = (char *) path;
-  if (path_root[0] == '/' && path_root[1] == '/')
-    path_root++;
-
+  /* Remove double slashes. */
+  char *path_root = remove_leading_slashes (path);
   if (strlen (path_root) == 0)
     return NULL;
-
+  
+  /* Get parent directory inode. */
   struct inode *inode = path_to_inode (path_root);
   if (inode == NULL)
     {
@@ -158,6 +162,11 @@ filesys_open (const char *path)
 bool
 filesys_remove (const char *path) 
 {
+  /* Remove double slashes. */
+  char *path_root = remove_leading_slashes (path);
+  if (strlen (path_root) == 0)
+    return NULL;
+
   char *base = extract_base (path);
   char *name = extract_name (path);
 
