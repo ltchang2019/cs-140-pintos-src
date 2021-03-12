@@ -10,6 +10,7 @@
 #include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/path.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
@@ -40,6 +41,11 @@ static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
 static mapid_t syscall_mmap (int fd, void *addr);
 static void syscall_munmap (mapid_t mapid);
+static bool syscall_mkdir (const char *dir_path);
+static bool syscall_chdir (const char *dir_path);
+static bool syscall_readdir (int fd, char *name);
+static int syscall_inumber (int fd);
+static bool syscall_isdir (int fd);
 
 static uintptr_t read_frame (struct intr_frame *, int arg_offset);
 static void write_frame (struct intr_frame *, uintptr_t ret_value);
@@ -53,7 +59,6 @@ static void check_usr_ptr (const void *usr_ptr);
 void
 syscall_init (void) 
 {
-  lock_init (&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -212,6 +217,50 @@ syscall_handler (struct intr_frame *f)
         syscall_munmap (mapid);
         break;
       }
+    case SYS_MKDIR:
+      {
+        const char *dir = (const char *) read_frame (f, 1);
+        check_usr_str (dir);
+
+        bool success = syscall_mkdir (dir);
+        write_frame (f, success);
+        break;
+      }
+    case SYS_CHDIR:
+      {
+        const char *dir = (const char *) read_frame (f, 1);
+        check_usr_str (dir);
+
+        bool success = syscall_chdir (dir);
+        write_frame (f, success);
+        break;
+      }
+    case SYS_READDIR:
+      {
+        int fd = (int) read_frame (f, 1);
+        char *dir = (char *) read_frame (f, 2);
+        check_usr_str (dir);
+
+        bool success = syscall_readdir (fd, dir);
+        write_frame (f, success);
+        break;
+      }
+    case SYS_ISDIR:
+      {
+        int fd = (int) read_frame (f, 1);
+
+        bool is_dir = syscall_isdir (fd);
+        write_frame (f, is_dir);
+        break;
+      }
+    case SYS_INUMBER:
+      {
+        int fd = (int) read_frame (f, 1);
+
+        int inumber = syscall_inumber (fd);
+        write_frame (f, inumber);
+        break;
+      }
     default:
       break;
   }
@@ -325,13 +374,10 @@ syscall_create (const char *file_name, unsigned initial_size)
 {
   int len = strlen (file_name);
 
-  lock_acquire (&filesys_lock);
-
   pin_frames (file_name, len);
-  bool create_succeeded = filesys_create (file_name, initial_size);
+  bool create_succeeded = filesys_create (file_name, initial_size, FILE);
   unpin_frames (file_name, len);
 
-  lock_release (&filesys_lock);
   return create_succeeded;
 }
 
@@ -343,13 +389,10 @@ syscall_remove (const char *file_name)
 {
   int len = strlen (file_name);
 
-  lock_acquire (&filesys_lock);
-
   pin_frames (file_name, len);
   bool remove_succeeded = filesys_remove (file_name);
   unpin_frames (file_name, len);
 
-  lock_release (&filesys_lock);
   return remove_succeeded;
 }
 
@@ -360,16 +403,13 @@ syscall_open (const char *file_name)
 {
   int len = strlen (file_name);
 
-  lock_acquire (&filesys_lock);
-
   pin_frames (file_name, len);
   struct file *open_file = filesys_open (file_name);
   unpin_frames (file_name, len);
 
-  lock_release (&filesys_lock);
   if (open_file == NULL)
     return -1;
-  
+
   /* Allocate new fd_entry struct and add to fd_list of process. */
   struct thread *t = thread_current ();
   struct fd_entry *fd_entry = malloc (sizeof (struct fd_entry));
@@ -392,10 +432,7 @@ syscall_filesize (int fd)
   if (open_file == NULL)
     return 0;
 
-  lock_acquire (&filesys_lock);
-  int filesize = file_length (open_file);
-  lock_release (&filesys_lock);
-  return filesize;
+  return file_length (open_file);
 }
 
 /* Reads SIZE bytes from the file open as FD into BUF. Returns the
@@ -431,16 +468,12 @@ syscall_read (int fd, void *buf, unsigned size)
   if (open_file == NULL)
     return -1;
 
-  lock_acquire (&filesys_lock);
-
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_read(). */
-  
   pin_frames (buf, size);
   bytes_read = file_read (open_file, buf, size);
   unpin_frames (buf, size);
 
-  lock_release (&filesys_lock);
   return bytes_read;
 }
 
@@ -468,8 +501,8 @@ syscall_write (int fd, const void *buf, unsigned size)
   struct file *open_file = fd_to_file (fd);
   if (open_file == NULL)
     return 0;
-
-  lock_acquire (&filesys_lock);
+  if (open_file->inode->type == DIR)
+    return -1;
 
   /* Acquire locks on frames containing BUF to prevent interference
      from the page eviction policy. Release locks after file_write(). */
@@ -477,7 +510,6 @@ syscall_write (int fd, const void *buf, unsigned size)
   bytes_written = file_write (open_file, buf, size);
   unpin_frames (buf, size);
 
-  lock_release (&filesys_lock);
   return bytes_written;
 }
 
@@ -492,9 +524,7 @@ syscall_seek (int fd, unsigned position)
   if (open_file == NULL)
     return;
 
-  lock_acquire (&filesys_lock);
   file_seek (open_file, position);
-  lock_release (&filesys_lock);
 }
 
 /* Returns the position of the next byte to be read or written
@@ -507,10 +537,7 @@ syscall_tell (int fd)
   if (open_file == NULL)
     return 0;
 
-  lock_acquire (&filesys_lock);
-  unsigned position = file_tell (open_file);
-  lock_release (&filesys_lock);
-  return position;
+  return file_tell (open_file);
 }
 
 /* Close file descriptor FD for the current process Returns without
@@ -530,9 +557,7 @@ syscall_close (int fd)
       if (entry->fd == fd)
         {
           open_file = entry->file;
-          lock_acquire (&filesys_lock);
           file_close (open_file);
-          lock_release (&filesys_lock);
           list_remove (fd_elem);
           free (entry);
           entry = NULL;
@@ -556,4 +581,97 @@ static void
 syscall_munmap (mapid_t mapid)
 {
   munmap (mapid);
+}
+
+/* Creates a new directory given path DIR_PATH. Returns false if
+   directory creation failed for any reason. */
+static bool
+syscall_mkdir (const char *dir_path)
+{
+  return filesys_create (dir_path, 16 * sizeof (struct dir_entry), DIR);
+}
+
+/* Changes thread's current working directory to that of
+   the provided DIR_PATH if the path's inode exists. Returns 
+   false, if it doesn't exist or if the directory has been
+   removed. */
+static bool
+syscall_chdir (const char *dir_path)
+{
+  struct inode *inode = path_to_inode ((char *) dir_path);
+  if (inode == NULL)
+    return false;
+
+  /* Fail call if inode removed. */
+  lock_acquire (&inode->lock);
+  if (inode->removed)
+    {
+      lock_release (&inode->lock);
+      return false;
+    }
+  lock_release (&inode->lock);
+
+  /* Close current cwd inode and set to new one. */
+  inode_close (thread_current ()->cwd_inode);
+  thread_current ()->cwd_inode = inode;
+  
+  return true;
+}
+
+/* Reads name of next dir_entry in directory associated with FD 
+   into NAME. Returns true if dir_entry was found and false if 
+   otherwise. Returns false if fd isn't associated with open 
+   directory. */
+static bool 
+syscall_readdir (int fd, char *name)
+{
+  struct file *open_file = fd_to_file (fd);
+  if (open_file == NULL)
+    return false;
+  if (open_file->inode->type != DIR)
+    return false;
+  
+  /* Ensure correct dir_entry offset. */
+  ASSERT (open_file->pos % sizeof (struct dir_entry) == 0);
+
+  struct dir *dir = malloc (sizeof (struct dir));
+  if (dir == NULL)
+    PANIC ("syscall_readdir: malloc failed for dir");
+  dir->pos = open_file->pos;
+  dir->inode = open_file->inode;
+  
+  bool success = dir_readdir (dir, name);
+  open_file->pos += sizeof (struct dir_entry);
+
+  free (dir);
+  dir = NULL;
+
+  return success;
+}
+
+/* Returns whether or not file associated with fd
+   is a directory. */
+static bool 
+syscall_isdir (int fd)
+{
+  /* Reopen file to avoid inode being freed during call. */
+  struct file *file = fd_to_file (fd);
+  if (file == NULL)
+    return -1;
+  
+  return file->inode->type == DIR;
+}
+
+/* Returns sector number of inode associated with
+   FD. Returns -1 if no open file/directory associated
+   with FD. */
+static int 
+syscall_inumber (int fd)
+{
+  /* Reopen file to avoid inode being freed during call. */
+  struct file *file = fd_to_file (fd);
+  if (file == NULL)
+    return -1;
+    
+  return file->inode->sector;;
 }

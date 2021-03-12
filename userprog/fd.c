@@ -40,11 +40,7 @@ free_fd_list (void)
       struct fd_entry *entry = list_entry (fd_elem, struct fd_entry, elem);
       file = entry->file;
       
-      if (!lock_held_by_current_thread (&filesys_lock))
-        lock_acquire (&filesys_lock);
       file_close (file);
-      lock_release (&filesys_lock);
-
       list_remove (fd_elem);
       free (entry);
       entry = NULL;

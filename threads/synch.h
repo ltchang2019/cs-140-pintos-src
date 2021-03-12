@@ -45,8 +45,10 @@ struct lock
 
 void lock_init (struct lock *);
 void lock_acquire (struct lock *);
+bool lock_acquire_in_context (struct lock *);
 bool lock_try_acquire (struct lock *);
 void lock_release (struct lock *);
+void lock_conditional_release (struct lock *, bool);
 bool lock_held_by_current_thread (const struct lock *);
 
 /* Condition variable. */
@@ -60,24 +62,27 @@ void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
-/* Writer-preferring readers-writer lock. */
+/* Fair readers-writer lock. */
 struct rw_lock
   {
     struct lock lock;             /* Lock for atomic increments/decrements. */
     struct condition cond;        /* Condition variable. */
-    struct list active_readers;
-    struct list waiting_writers;
-    struct thread *writer;
+    size_t active_readers;        /* Number of readers holding rw_lock. */
+    size_t waiting_readers;       /* Number of readers waiting for rw_lock. */
+    size_t waiting_writers;       /* Number of writers waiting for rw_lock. */
+    struct thread *writer;        /* Writer thread holding the rw_lock. */
+    size_t consec_readers;        /* Number of consecutive readers. */
+    size_t consec_writers;        /* Number of consecutive writers. */
   };
 
 void rw_lock_init (struct rw_lock *);
 void rw_lock_shared_acquire (struct rw_lock *);
+bool rw_lock_shared_try_acquire (struct rw_lock *);
 void rw_lock_shared_release (struct rw_lock *);
 void rw_lock_shared_to_exclusive (struct rw_lock *);
 void rw_lock_exclusive_acquire (struct rw_lock *);
 void rw_lock_exclusive_release (struct rw_lock *);
 void rw_lock_exclusive_to_shared (struct rw_lock *);
-bool current_thread_is_reader (struct rw_lock *);
 bool current_thread_is_writer (struct rw_lock *);
 
 /* Optimization barrier.

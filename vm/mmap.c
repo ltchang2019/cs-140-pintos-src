@@ -70,9 +70,7 @@ mmap (int fd, void *addr)
   if (file == NULL)
     return -1;
 
-  lock_acquire (&filesys_lock);
   int filesize = file_length (file);
-  lock_release (&filesys_lock);
   
   if (filesize == 0)
     return -1;
@@ -91,10 +89,7 @@ mmap (int fd, void *addr)
   /* Create new spte for every page in mapping. */
   for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
     {
-      lock_acquire (&filesys_lock);
       struct file *fresh_file = file_reopen (file);
-      lock_release (&filesys_lock);
-
       size_t page_bytes = (ofs + PGSIZE > filesize) ? filesize - ofs : PGSIZE;
       struct spte *spte = spte_create (addr + ofs, MMAP, fresh_file, ofs,
                                        SWAP_DEFAULT, page_bytes, true, false);
@@ -124,10 +119,7 @@ static void
 munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
 {
   struct file *file = spte_lookup (entry->uaddr)->file;
-
-  lock_acquire (&filesys_lock);
   int filesize = file_length (file);
-  lock_release (&filesys_lock);
   
   for (int ofs = 0; ofs < filesize; ofs += PGSIZE)
     {
@@ -137,11 +129,7 @@ munmap_by_mmap_entry (struct mmap_entry *entry, struct thread *t)
 
       /* Write page back to file if it has been written to. */
       if (pagedir_is_dirty (t->pagedir, curr_uaddr))
-        {
-          lock_acquire (&filesys_lock);
-          file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
-          lock_release (&filesys_lock);
-        }
+        file_write_at (spte->file, curr_uaddr, spte->page_bytes, spte->ofs);
 
       /* Free underlying page if it is loaded in memory. */
       if (spte->loaded)

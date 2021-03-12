@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
+#include "filesys/inode.h"
 #include "userprog/p_info.h"
 
 /* Thread ID. */
@@ -27,9 +28,6 @@ enum thread_status
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
-
-/* Lock for access to the filesys interface for user programs. */
-struct lock filesys_lock;
 
 /* A kernel thread or user process.
 
@@ -130,9 +128,10 @@ struct thread
     struct list mmap_list;            /* List of mmap entries. */
 #endif
 
-// #ifdef FILESYS
+#ifdef FILESYS
    struct list_elem rw_elem;
-// #endif
+   struct inode *cwd_inode;
+#endif
 
     /* Owned by thread.c. */
     unsigned magic;                   /* Detects stack overflow. */
