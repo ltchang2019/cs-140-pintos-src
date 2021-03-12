@@ -1,8 +1,8 @@
 #ifndef FILESYS_INODE_H
 #define FILESYS_INODE_H
 
-#include <stdbool.h>
 #include <list.h>
+#include <stdbool.h>
 #include "filesys/off_t.h"
 #include "devices/block.h"
 #include "threads/synch.h"
@@ -25,6 +25,7 @@
 #define NUM_DIR_INDIR (NUM_DIRECT + NUM_INDIRECT)
 #define NUM_FILE_MAX (NUM_DIR_INDIR + (NUM_INDIRECT * NUM_INDIRECT))
 
+/* Type of file. */
 enum inode_type
   {
     FREEMAP,

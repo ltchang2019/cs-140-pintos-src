@@ -18,6 +18,7 @@
 #include "userprog/p_info.h"
 #endif
 #ifdef FILESYS
+#include "filesys/cache.h"
 #include "filesys/inode.h"
 #endif
 

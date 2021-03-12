@@ -59,7 +59,6 @@ static void check_usr_ptr (const void *usr_ptr);
 void
 syscall_init (void) 
 {
-  lock_init (&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 

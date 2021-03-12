@@ -16,7 +16,7 @@
 
 static struct lock open_inodes_lock;
 
-static block_sector_t allocate_zeroed_block_for_file (struct inode *inode, off_t offset);
+static block_sector_t allocate_zero_block (struct inode *inode, off_t offset);
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -370,6 +370,7 @@ inode_close (struct inode *inode)
     return;
 
   bool release = lock_acquire_in_context (&inode->lock);
+
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0)
     {
@@ -382,25 +383,27 @@ inode_close (struct inode *inode)
       if (inode->removed) 
         {
           /* Get inode_disk block from cache. */
-          size_t cache_idx = cache_get_block (inode->sector, INODE);
-          struct inode_disk *inode_data = cache_idx_to_inode_disk (cache_idx);
+          size_t id_cache_idx = cache_get_block (inode->sector, INODE);
+          void *i_disk = cache_idx_to_cache_block_addr (id_cache_idx);
+          struct inode_disk *i_data = cache_idx_to_inode_disk (id_cache_idx);
 
           /* Free data blocks pointed to by direct block (inode_disk). */
           for (size_t idx = 0; idx < NUM_DIRECT; idx++)
             {
-              block_sector_t sector = inode_data->sectors[idx];
+              block_sector_t sector = i_data->sectors[idx];
               if (sector != SECTOR_NOT_PRESENT)
                 free_disk_block (sector);
             }
 
           /* Free data blocks pointed to by indirect block. */
-          if (inode_data->sectors[INDIR] != SECTOR_NOT_PRESENT)
+          if (i_data->sectors[INDIR] != SECTOR_NOT_PRESENT)
             {
               /* Get indirect block from cache. */
-              block_sector_t i_sector = inode_data->sectors[INDIR];
-              size_t cache_idx = cache_get_block (i_sector, DATA);
+              block_sector_t i_sector = i_data->sectors[INDIR];
+              size_t i_cache_idx = cache_get_block (i_sector, DATA);
+              void *indir_b = cache_idx_to_cache_block_addr (i_cache_idx);
               struct indir_block *i_block = 
-                cache_idx_to_indir_block (cache_idx);
+                cache_idx_to_indir_block (i_cache_idx);
 
               for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
                 {
@@ -410,17 +413,20 @@ inode_close (struct inode *inode)
                 }
               
               /* Free the indirect block. */
+              cache_shared_release (indir_b);
               free_disk_block (i_sector);
             }
          
           /* Free data blocks pointed to by doubly indirect block. */
-          if (inode_data->sectors[DOUBLE_INDIR] != SECTOR_NOT_PRESENT)
+          if (i_data->sectors[DOUBLE_INDIR] != SECTOR_NOT_PRESENT)
             {
               /* Get doubly indirect block from cache. */
-              block_sector_t di_sector = inode_data->sectors[DOUBLE_INDIR];
-              size_t cache_idx = cache_get_block (di_sector, DATA);
+              block_sector_t di_sector = i_data->sectors[DOUBLE_INDIR];
+              size_t d_cache_idx = cache_get_block (di_sector, DATA);
+              void *d_indir_b = cache_idx_to_cache_block_addr (d_cache_idx);
               struct indir_block *di_block = 
-                cache_idx_to_indir_block (cache_idx);
+                cache_idx_to_indir_block (d_cache_idx);
+
               /* Iterate through indirect blocks of doubly indirect block. */
               for (size_t d_idx = 0; d_idx < NUM_INDIRECT; d_idx++)
                 {
@@ -429,9 +435,11 @@ inode_close (struct inode *inode)
                     
                   /* Get indirect block from cache. */
                   block_sector_t i_sector = di_block->sectors[d_idx];
-                  size_t cache_idx = cache_get_block (i_sector, DATA);
+                  size_t di_cache_idx = cache_get_block (i_sector, DATA);
+                  void *di_indir_b = 
+                    cache_idx_to_cache_block_addr (di_cache_idx);
                   struct indir_block *i_block = 
-                    cache_idx_to_indir_block (cache_idx);
+                    cache_idx_to_indir_block (di_cache_idx);
 
                   /* Free data blocks pointed to by indirect block. */
                   for (size_t idx = 0; idx < NUM_INDIRECT; idx++)
@@ -442,14 +450,17 @@ inode_close (struct inode *inode)
                     }
                   
                   /* Free the indirect block. */
+                  cache_shared_release (di_indir_b);
                   free_disk_block (i_sector);
                 }
             
               /* Free the doubly indirect block. */
+              cache_shared_release (d_indir_b);
               free_disk_block (di_sector);
             }
 
           /* Free the direct block (inode_disk). */
+          cache_shared_release (i_disk);
           free_disk_block (inode->sector);
         }
 
@@ -504,8 +515,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       if (sector_idx == SECTOR_NOT_PRESENT && offset < length)
         {
           // // printf ("ALLOCATING ZERO\n");
-          block_sector_t new_sector = 
-            allocate_zeroed_block_for_file (inode, offset);
+          block_sector_t new_sector = allocate_zero_block (inode, offset);
           if (new_sector == SECTOR_NOT_PRESENT)
             return bytes_read;
 
@@ -556,7 +566,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
    with no corresponding block sector allocated yet. Allocates
    zeroed block, adds to inode_disk of INODE. */
 static block_sector_t
-allocate_zeroed_block_for_file (struct inode *inode, off_t offset)
+allocate_zero_block (struct inode *inode, off_t offset)
 {
   /* Allocate a new disk sector. */
   block_sector_t new_sector = 0;
