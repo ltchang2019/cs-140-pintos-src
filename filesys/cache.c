@@ -15,10 +15,9 @@ static struct bitmap *cache_bitmap;
 static struct lock eviction_lock;
 static struct condition eviction_cond;
 
-/* Clock hands and timeout for the eviction algorithm. */
+/* Clock hands for the eviction algorithm. */
 static struct cache_entry *lagging_hand;
 static struct cache_entry *leading_hand;
-static size_t clock_timeout;
 
 /* A semaphore to signal the read-ahead worker thread. */
 static struct semaphore read_ahead_sema;
@@ -37,34 +36,62 @@ static size_t cache_evict_block (void);
 static size_t cache_find_block (block_sector_t sector);
 static size_t cache_load (block_sector_t sector);
 
+/* Initializes the buffer cache.
+
+   More specifically, allocates memory for cache, cache
+   metadata, and cache bitmap. Initializes the global
+   eviction_lock for the eviction algorithm and individual
+   rw_locks for each of the cache_entry structs. Spawns
+   two worker threads to handle asynchronous read-ahead
+   and periodic writes of dirty blocks back to disk. */
+void
+cache_init (void)
+{
+  /* Allocate memory. */
+  cache = malloc (BLOCK_SECTOR_SIZE * CACHE_SIZE);
+  cache_metadata = malloc (sizeof (struct cache_entry) * CACHE_SIZE);
+  cache_bitmap = bitmap_create (CACHE_SIZE);
+  if (cache == NULL || cache_metadata == NULL || cache_bitmap == NULL)
+    PANIC ("cache_init: failed memory allocation for cache data structures.");
+
+  /* Initialize eviction_lock and eviction condition variable. */
+  lock_init (&eviction_lock);
+  cond_init (&eviction_cond);
+
+  /* Initialize fields for each cache_entry. */
+  for (size_t idx = 0; idx < CACHE_SIZE; idx++)
+    {
+      struct cache_entry *ce = cache_metadata + idx;
+      ce->sector_idx = SECTOR_NOT_PRESENT;
+      ce->cache_idx = idx;
+      ce->dirty = false;
+      ce->accessed = false;
+      rw_lock_init (&ce->rw_lock);
+    }
+
+  /* Initialize clock hands for eviction algorithm. */
+  lagging_hand = cache_metadata;
+  leading_hand = cache_metadata + (CACHE_SIZE / 4);
+
+  /* Initialize list and semaphore for read-ahead worker thread. */
+  list_init (&read_ahead_list);
+  sema_init (&read_ahead_sema, 0);
+
+  /* Spawn worker threads for read-ahead and cache flushes. */
+  tid_t tid_read_ahead = thread_create ("read-ahead", PRI_DEFAULT,
+                                        cache_read_ahead, NULL);
+  tid_t tid_periodic_flush = thread_create ("periodic-flush", PRI_DEFAULT,
+                                            cache_periodic_flush, NULL);
+  if (tid_read_ahead == TID_ERROR || tid_periodic_flush == TID_ERROR)
+    PANIC ("cache_init: failed to spawn cache worker threads.");
+}
+
 /* Translates CACHE_IDX into address of the corresponding
    cache slot in the cache. */
 void *
 cache_idx_to_cache_block_addr (size_t cache_idx)
 {
   return cache + (cache_idx * BLOCK_SECTOR_SIZE);
-}
-
-/* Translates CACHE_IDX into an inode_disk struct.
-
-   Should only be called when CACHE_IDX's corresponding
-   block contains an inode_disk. */
-struct inode_disk *
-cache_idx_to_inode_disk (size_t cache_idx)
-{
-  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-  return (struct inode_disk *) cache_block_addr;
-}
-
-/* Translates CACHE_IDX into an indir_block struct.
-
-   Should only be called when CACHE_IDX's corresponding
-   block contains an indir_block. */
-struct indir_block *
-cache_idx_to_indir_block (size_t cache_idx)
-{
-  void *cache_block_addr = cache_idx_to_cache_block_addr (cache_idx);
-  return (struct indir_block *) cache_block_addr;
 }
 
 /* Translates CACHE_IDX into address of the corresponding
@@ -166,57 +193,6 @@ cache_conditional_release (void *block_addr, bool exclusive)
     cache_shared_release (block_addr);
 }
 
-/* Initializes the buffer cache.
-
-   More specifically, allocates memory for cache, cache
-   metadata, and cache bitmap. Initializes the global
-   eviction_lock for the eviction algorithm and individual
-   rw_locks for each of the cache_entry structs. Spawns
-   two worker threads to handle asynchronous read-ahead
-   and periodic writes of dirty blocks back to disk. */
-void
-cache_init (void)
-{
-  /* Allocate memory. */
-  cache = malloc (BLOCK_SECTOR_SIZE * CACHE_SIZE);
-  cache_metadata = malloc (sizeof (struct cache_entry) * CACHE_SIZE);
-  cache_bitmap = bitmap_create (CACHE_SIZE);
-  if (cache == NULL || cache_metadata == NULL || cache_bitmap == NULL)
-    PANIC ("cache_init: failed memory allocation for cache data structures.");
-
-  /* Initialize eviction_lock and eviction condition variable. */
-  lock_init (&eviction_lock);
-  cond_init (&eviction_cond);
-
-  /* Initialize fields for each cache_entry. */
-  for (size_t idx = 0; idx < CACHE_SIZE; idx++)
-    {
-      struct cache_entry *ce = cache_metadata + idx;
-      ce->sector_idx = SECTOR_NOT_PRESENT;
-      ce->cache_idx = idx;
-      ce->dirty = false;
-      ce->accessed = false;
-      rw_lock_init (&ce->rw_lock);
-    }
-
-  /* Initialize clock hands and timeout for eviction algorithm. */
-  lagging_hand = cache_metadata;
-  leading_hand = cache_metadata + (CACHE_SIZE / 4);
-  clock_timeout = 0;
-
-  /* Initialize list and semaphore for read-ahead worker thread. */
-  list_init (&read_ahead_list);
-  sema_init (&read_ahead_sema, 0);
-
-  /* Spawn worker threads for read-ahead and cache flushes. */
-  tid_t tid_read_ahead = thread_create ("read-ahead", PRI_DEFAULT,
-                                        cache_read_ahead, NULL);
-  tid_t tid_periodic_flush = thread_create ("periodic-flush", PRI_DEFAULT,
-                                            cache_periodic_flush, NULL);
-  if (tid_read_ahead == TID_ERROR || tid_periodic_flush == TID_ERROR)
-    PANIC ("cache_init: failed to spawn cache worker threads.");
-}
-
 /* Get a block with sector number SECTOR into memory by
    locating it in the cache or loading it from disk.
 
@@ -300,7 +276,7 @@ clock_find (void)
       if (rw_lock_shared_try_acquire (&lagging_hand->rw_lock))
         {
           if (!lagging_hand->accessed &&
-              lagging_hand->rw_lock.active_readers < 2)
+              lagging_hand->rw_lock.active_readers == 1)
             {
               rw_lock_shared_to_exclusive (&lagging_hand->rw_lock);
               size_t cache_idx = lagging_hand->cache_idx;

@@ -102,3 +102,14 @@ extract_name (const char *path)
 
   return last_slash + 1;
 }
+
+/* Remove leading slashes in path. */
+char *
+remove_leading_slashes (const char *path)
+{
+  char *path_root = (char *) path;
+  if (path_root[0] == '/' && path_root[1] == '/')
+    path_root++;
+  
+  return path_root;
+}
